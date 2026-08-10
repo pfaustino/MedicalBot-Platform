@@ -120,16 +120,22 @@ module contributes its own guardrails to the system prompt.
 
 ## Deploying to Railway
 
-Create one project with four services: **api**, **web**, **Postgres**, and **Redis**.
+Use **one app service** plus **Postgres** and **Redis** plugins in a single Railway
+project. The root `railway.json` runs `npm ci && npm run build` (API + static Next
+export) and starts the API with `npm run start`. The API serves the exported web app from
+`apps/web/out` on the same origin, so session cookies work without a separate web
+service.
 
-For `api` and `web`, point the service at this repo and set its config path to
-`apps/api/railway.json` or `apps/web/railway.json` respectively. The API's start command
-runs migrations before booting, and its healthcheck hits `/health`.
+1. Connect this repo to one Railway service (repo root — do **not** set the root
+   directory to `apps/web` or `apps/api`).
+2. Railway auto-detects root `railway.json`; healthcheck is `/health`.
+3. Add Postgres and Redis plugins; reference `DATABASE_URL` and `REDIS_URL` on the app
+   service.
+4. Set the environment variables from `.env.example`. Set `APP_URL` to this service's
+   public URL (for OAuth redirects).
 
-Set the environment variables from `.env.example` on the `api` service. `DATABASE_URL` and
-`REDIS_URL` come from the plugins via reference variables. On `web`, set `API_URL` to the
-api service's public URL, and set `APP_URL` on `api` to the web service's URL so CORS and
-the OAuth redirect line up.
+If you have a leftover `@medbot/web` service from an older two-service template, delete it —
+it is redundant and will fail or duplicate the API.
 
 Use a separate Railway environment for staging. Never point staging at production data.
 
