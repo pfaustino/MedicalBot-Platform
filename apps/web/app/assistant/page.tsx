@@ -115,7 +115,7 @@ export default function AssistantPage() {
           {
             id: messageId++,
             role: 'assistant',
-            text: 'I need OPENROUTER_API_KEY set on the server before I can chat. Everything else in the app works in the meantime.',
+            text: 'Add your OpenRouter API key in Settings before I can chat. Everything else in the app works in the meantime.',
           },
         ])
       } else {
@@ -217,8 +217,9 @@ export default function AssistantPage() {
           <div className="callout danger">
             <strong>Assistant not enabled.</strong>
             <p>
-              Set <code>OPENROUTER_API_KEY</code> on the API service to turn on live conversation.
-              Everything else in the app works without it.
+              Add your OpenRouter API key in{' '}
+              <a href="/settings">Settings</a> to turn on live conversation. Everything else in
+              the app works without it.
             </p>
           </div>
         )}

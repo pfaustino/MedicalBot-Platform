@@ -8,6 +8,8 @@ export interface Me {
   email: string
   role: 'user' | 'admin' | 'owner'
   isAdmin: boolean
+  mustChangePassword: boolean
+  hasPassword: boolean
   needsTermsAcceptance: boolean
   onboardedAt: string | null
 }

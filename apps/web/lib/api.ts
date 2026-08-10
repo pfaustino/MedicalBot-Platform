@@ -49,6 +49,13 @@ export async function apiPatch<T>(path: string, body: unknown = {}): Promise<T> 
   return (await res.json()) as T
 }
 
+export async function apiPut<T>(path: string, body: unknown = {}): Promise<T> {
+  const res = await apiFetch(path, { method: 'PUT', body: JSON.stringify(body) })
+  if (res.status === 401) throw new NotAuthenticated()
+  if (!res.ok) throw new ApiError(path, res.status, await safeBody(res))
+  return (await res.json()) as T
+}
+
 /**
  * Fastify rejects an empty body sent with a JSON content-type, so a bodyless
  * DELETE has to carry an empty object.
@@ -69,6 +76,15 @@ export class ApiError extends Error {
     super(`${path} failed: ${status}`)
     this.name = 'ApiError'
   }
+}
+
+/** Extract a server `error` string from an ApiError body, if present. */
+export function apiErrorMessage(body: unknown): string | null {
+  if (body && typeof body === 'object' && 'error' in body) {
+    const msg = (body as { error?: unknown }).error
+    return typeof msg === 'string' && msg.trim() ? msg : null
+  }
+  return null
 }
 
 async function safeBody(res: Response): Promise<unknown> {

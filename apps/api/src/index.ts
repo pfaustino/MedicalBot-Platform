@@ -8,6 +8,7 @@ import fastifyStatic from '@fastify/static'
 import Fastify from 'fastify'
 import { config, isProduction, googleConfigured, openRouterConfigured } from './config.js'
 import { closeDb, pingDb, runMigrations, usingPglite } from './db/index.js'
+import { bootstrapAdmin } from './lib/bootstrap-admin.js'
 import { authRoutes } from './routes/auth.js'
 import { dashboardRoutes } from './routes/dashboard.js'
 import { demoRoutes } from './routes/demo.js'
@@ -34,6 +35,9 @@ const app = Fastify({
         'req.body.value',
         'req.body.answers',
         'req.body.content',
+        'req.body.password',
+        'req.body.currentPassword',
+        'req.body.newPassword',
       ],
       remove: true,
     },
@@ -111,6 +115,7 @@ await app.register(importRoutes, { prefix: '/api' })
 try {
   await runMigrations()
   app.log.info({ driver: usingPglite ? 'pglite' : 'postgres' }, 'Database ready')
+  await bootstrapAdmin(app.log)
 } catch (error) {
   app.log.error(error, 'Migrations failed')
   process.exit(1)

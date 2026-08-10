@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { asc, desc, eq } from 'drizzle-orm'
 import { z } from 'zod'
-import { config, openRouterConfigured } from '../config.js'
+import { isOpenRouterConfigured, getOpenRouterSettings } from '../lib/openrouter-settings.js'
 import { db, schema } from '../db/index.js'
 import { runAgent } from '../ai/agent.js'
 import {
@@ -33,7 +33,7 @@ export async function assistantRoutes(app: FastifyInstance): Promise<void> {
       .where(eq(schema.conversations.userId, userId))
       .orderBy(asc(schema.conversations.createdAt))
       .limit(200)
-    return reply.send({ messages: rows, configured: openRouterConfigured })
+    return reply.send({ messages: rows, configured: await isOpenRouterConfigured(userId) })
   })
 
   app.delete('/assistant/history', async (request, reply) => {
@@ -48,9 +48,10 @@ export async function assistantRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.post('/assistant/chat', async (request, reply) => {
-    if (!openRouterConfigured) {
+    const userId = request.session.userId!
+    if (!(await isOpenRouterConfigured(userId))) {
       return reply.code(503).send({
-        error: 'The assistant is not configured yet. Set OPENROUTER_API_KEY to enable it.',
+        error: 'Add your OpenRouter API key in Settings to enable the assistant.',
         configured: false,
       })
     }
@@ -59,7 +60,6 @@ export async function assistantRoutes(app: FastifyInstance): Promise<void> {
     if (!parsed.success) {
       return reply.code(400).send({ error: 'Invalid message', issues: parsed.error.issues })
     }
-    const userId = request.session.userId!
     const { message, personaId } = parsed.data
 
     // Recent turns for continuity (most recent 20, back into chronological order).
@@ -103,12 +103,20 @@ export async function assistantRoutes(app: FastifyInstance): Promise<void> {
   // outcome (which model, or the precise provider error) so misconfiguration is
   // obvious without reading server logs.
   app.get('/assistant/diagnostics', { preHandler: requireAdmin }, async (request, reply) => {
-    if (!openRouterConfigured) {
-      return reply.send({ configured: false, ok: false, message: 'OPENROUTER_API_KEY is not set.' })
+    const userId = request.session.userId!
+    if (!(await isOpenRouterConfigured(userId))) {
+      return reply.send({
+        configured: false,
+        ok: false,
+        message: 'Add your OpenRouter API key in Settings to enable the assistant.',
+      })
     }
+    const settings = await getOpenRouterSettings(userId)
+    const chatModel = settings.models.chat
     try {
       const res = await complete({
         task: 'chat',
+        userId,
         messages: [{ role: 'user', content: 'Reply with just: ok' }],
         maxTokens: 5,
         temperature: 0,
@@ -116,7 +124,7 @@ export async function assistantRoutes(app: FastifyInstance): Promise<void> {
       return reply.send({
         configured: true,
         ok: true,
-        chatModel: config.MODEL_CHAT,
+        chatModel,
         respondedAs: res.model,
         sample: res.content.slice(0, 80),
       })
@@ -127,7 +135,7 @@ export async function assistantRoutes(app: FastifyInstance): Promise<void> {
           configured: true,
           ok: false,
           status: err.status,
-          chatModel: config.MODEL_CHAT,
+          chatModel,
           message: describeOpenRouterError(err),
           detail: err.body?.slice(0, 300),
         })
@@ -135,7 +143,7 @@ export async function assistantRoutes(app: FastifyInstance): Promise<void> {
       return reply.send({
         configured: true,
         ok: false,
-        chatModel: config.MODEL_CHAT,
+        chatModel,
         message: err instanceof Error ? err.message : 'unknown error',
       })
     }

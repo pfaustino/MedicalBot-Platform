@@ -1,0 +1,62 @@
+/**
+ * Starter ICD-10 diagnoses for typeahead search. The full catalog is ~70k codes —
+ * load from an external file or API later; this seeds common chronic conditions and
+ * lets the search UX scale without shipping everything in the bundle.
+ */
+export interface IcdConditionEntry {
+  code: string
+  name: string
+}
+
+export const ICD_CONDITION_CATALOG: IcdConditionEntry[] = [
+  { code: 'E11.9', name: 'Type 2 diabetes mellitus without complications' },
+  { code: 'E10.9', name: 'Type 1 diabetes mellitus without complications' },
+  { code: 'R73.03', name: 'Prediabetes' },
+  { code: 'I10', name: 'Essential (primary) hypertension' },
+  { code: 'E78.5', name: 'Hyperlipidemia, unspecified' },
+  { code: 'N18.3', name: 'Chronic kidney disease, stage 3' },
+  { code: 'N18.4', name: 'Chronic kidney disease, stage 4' },
+  { code: 'N18.5', name: 'Chronic kidney disease, stage 5' },
+  { code: 'J44.9', name: 'Chronic obstructive pulmonary disease, unspecified' },
+  { code: 'J45.909', name: 'Unspecified asthma, uncomplicated' },
+  { code: 'F20.9', name: 'Schizophrenia, unspecified' },
+  { code: 'F25.9', name: 'Schizoaffective disorder, unspecified' },
+  { code: 'F31.9', name: 'Bipolar disorder, unspecified' },
+  { code: 'F32.9', name: 'Major depressive disorder, single episode, unspecified' },
+  { code: 'F41.9', name: 'Anxiety disorder, unspecified' },
+  { code: 'E03.9', name: 'Hypothyroidism, unspecified' },
+  { code: 'G40.909', name: 'Epilepsy, unspecified' },
+  { code: 'G89.29', name: 'Other chronic pain' },
+  { code: 'E66.9', name: 'Obesity, unspecified' },
+  { code: 'I42.2', name: 'Hypertrophic cardiomyopathy' },
+  { code: 'I50.9', name: 'Heart failure, unspecified' },
+  { code: 'I25.10', name: 'Atherosclerotic heart disease of native coronary artery' },
+  { code: 'I48.91', name: 'Unspecified atrial fibrillation' },
+  { code: 'I63.9', name: 'Cerebral infarction, unspecified' },
+  { code: 'M54.50', name: 'Low back pain, unspecified' },
+  { code: 'M06.9', name: 'Rheumatoid arthritis, unspecified' },
+  { code: 'M19.90', name: 'Unspecified osteoarthritis' },
+  { code: 'K21.9', name: 'Gastroesophageal reflux disease without esophagitis' },
+  { code: 'K58.9', name: 'Irritable bowel syndrome, unspecified' },
+  { code: 'K74.60', name: 'Unspecified cirrhosis of liver' },
+  { code: 'B18.2', name: 'Chronic viral hepatitis C' },
+  { code: 'C50.919', name: 'Malignant neoplasm of unspecified site of unspecified female breast' },
+  { code: 'C61', name: 'Malignant neoplasm of prostate' },
+  { code: 'D50.9', name: 'Iron deficiency anemia, unspecified' },
+  { code: 'D64.9', name: 'Anemia, unspecified' },
+  { code: 'E55.9', name: 'Vitamin D deficiency, unspecified' },
+  { code: 'G30.9', name: "Alzheimer's disease, unspecified" },
+  { code: 'G35', name: 'Multiple sclerosis' },
+  { code: 'G20', name: "Parkinson's disease" },
+  { code: 'H40.9', name: 'Unspecified glaucoma' },
+  { code: 'H35.30', name: 'Unspecified macular degeneration' },
+  { code: 'L40.9', name: 'Psoriasis, unspecified' },
+  { code: 'L70.9', name: 'Acne, unspecified' },
+  { code: 'N40.0', name: 'Benign prostatic hyperplasia without lower urinary tract symptoms' },
+  { code: 'N39.0', name: 'Urinary tract infection, site not specified' },
+  { code: 'O24.419', name: 'Gestational diabetes mellitus in pregnancy, unspecified control' },
+  { code: 'F90.9', name: 'Attention-deficit hyperactivity disorder, unspecified type' },
+  { code: 'F43.10', name: 'Post-traumatic stress disorder, unspecified' },
+  { code: 'F10.20', name: 'Alcohol dependence, uncomplicated' },
+  { code: 'F17.210', name: 'Nicotine dependence, cigarettes, uncomplicated' },
+]

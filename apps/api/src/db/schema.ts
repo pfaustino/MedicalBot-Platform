@@ -16,8 +16,13 @@ export const users = pgTable(
   'users',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    googleId: text('google_id').notNull(),
+    /** Null for password-only accounts (e.g. bootstrapped admin). */
+    googleId: text('google_id'),
     email: text('email').notNull(),
+    /** bcrypt hash — used for admin/owner password login. */
+    passwordHash: text('password_hash'),
+    /** Set on bootstrap login; cleared after the user picks a new password. */
+    mustChangePassword: boolean('must_change_password').notNull().default(false),
     /**
      * Access level. 'owner' is the software operator (bootstrapped from
      * OWNER_EMAIL), 'admin' is a trusted advanced user the owner promotes, and
@@ -57,6 +62,14 @@ export const profiles = pgTable('profiles', {
   emergencyContactName: text('emergency_contact_name'),
   emergencyContactPhone: text('emergency_contact_phone'),
   preferredPharmacy: text('preferred_pharmacy'),
+  /** Per-user OpenRouter key, encrypted at rest — see src/lib/crypto.ts. */
+  openrouterApiKeyEncrypted: text('openrouter_api_key_encrypted'),
+  openrouterConfiguredAt: timestamp('openrouter_configured_at', { withTimezone: true }),
+  openrouterBaseUrl: text('openrouter_base_url'),
+  openrouterModelChat: text('openrouter_model_chat'),
+  openrouterModelExtract: text('openrouter_model_extract'),
+  openrouterModelAnalyze: text('openrouter_model_analyze'),
+  openrouterModelVision: text('openrouter_model_vision'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
@@ -84,8 +97,10 @@ export const conditions = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    // Matches ConditionKey in @medbot/shared; drives which module loads.
+    // Module key, `icd:…`, or `custom:…` — see @medbot/shared buildConditionKey.
     key: text('key').notNull(),
+    displayName: text('display_name'),
+    icdCode: text('icd_code'),
     diagnosedAt: date('diagnosed_at'),
     status: text('status').notNull().default('active'),
     managingProviderId: uuid('managing_provider_id').references(() => careTeam.id, {

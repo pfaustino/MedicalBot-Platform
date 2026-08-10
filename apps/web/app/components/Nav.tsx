@@ -23,7 +23,7 @@ const LINKS = [
   { href: '/settings', label: 'Settings', tour: 'nav-settings' },
 ]
 
-const HIDDEN_ON = new Set(['/', '/terms', '/privacy', '/onboarding'])
+const HIDDEN_ON = new Set(['/', '/terms', '/privacy', '/onboarding', '/admin/login', '/admin/change-password'])
 
 export function Nav() {
   const pathname = usePathname()

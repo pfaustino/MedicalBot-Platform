@@ -36,6 +36,34 @@
       "when": 1784655000000,
       "tag": "0004_imaging_reports",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784660000000,
+      "tag": "0005_conditions_display",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784665000000,
+      "tag": "0006_user_openrouter",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784670000000,
+      "tag": "0007_openrouter_ai_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784675000000,
+      "tag": "0008_password_auth",
+      "breakpoints": true
     }
   ]
 }

@@ -151,6 +151,7 @@ const INSTRUCTION =
   'Extract the structured data from this document as JSON, following the schema and rules exactly. For imaging reports, be exhaustive — capture every measurement, finding section, conclusion, and diagnosis printed.'
 
 export async function extractDocument(input: {
+  userId: string
   filename: string
   mimeType: string
   dataUrl: string
@@ -165,7 +166,13 @@ export async function extractDocument(input: {
     { role: 'user', content: [{ type: 'text', text: INSTRUCTION }, filePart] },
   ]
 
-  const res = await complete({ task: 'vision', messages, temperature: 0, maxTokens: 16384 })
+  const res = await complete({
+    task: 'vision',
+    messages,
+    temperature: 0,
+    maxTokens: 16384,
+    userId: input.userId,
+  })
   return normalize(parseJson(res.content))
 }
 

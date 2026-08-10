@@ -1,4 +1,5 @@
-import { config, openRouterConfigured } from '../config.js'
+import { config } from '../config.js'
+import { getOpenRouterSettings } from '../lib/openrouter-settings.js'
 
 /**
  * Thin OpenRouter client. Deliberately not the OpenAI SDK — we need the
@@ -7,13 +8,6 @@ import { config, openRouterConfigured } from '../config.js'
  */
 
 export type TaskClass = 'chat' | 'extract' | 'analyze' | 'vision'
-
-const MODEL_BY_TASK: Record<TaskClass, () => string> = {
-  chat: () => config.MODEL_CHAT,
-  extract: () => config.MODEL_EXTRACT,
-  analyze: () => config.MODEL_ANALYZE,
-  vision: () => config.MODEL_VISION,
-}
 
 /**
  * Multimodal content parts. A message's content is either plain text or an array
@@ -44,6 +38,8 @@ export interface ChatMessage {
 export interface CompletionOptions {
   task: TaskClass
   messages: ChatMessage[]
+  /** Resolves per-user OpenRouter settings (key, base URL, models). */
+  userId: string
   tools?: unknown[]
   /** Ordered fallbacks. OpenRouter tries the next on provider failure. */
   fallbackModels?: string[]
@@ -80,13 +76,13 @@ export function describeOpenRouterError(err: OpenRouterError): string {
   const snippet = err.body ? ` (${err.body.slice(0, 200)})` : ''
   switch (err.status) {
     case 401:
-      return 'OpenRouter rejected the API key. Check that OPENROUTER_API_KEY is correct.'
+      return 'Invalid OpenRouter API key. Check your key in Settings → AI & OpenRouter.'
     case 402:
       return 'Your OpenRouter account is out of credits. Add credits at openrouter.ai/credits.'
     case 403:
       return `OpenRouter denied the request — the key may not have access to this model.${snippet}`
     case 404:
-      return `The configured model was not found on OpenRouter. Check your MODEL_CHAT / MODEL_* values.${snippet}`
+      return `The configured model was not found on OpenRouter. Check your model settings in Settings.${snippet}`
     case 429:
       return 'OpenRouter rate-limited the request. Wait a moment and try again.'
     default:
@@ -94,12 +90,41 @@ export function describeOpenRouterError(err: OpenRouterError): string {
   }
 }
 
+/** Safe, user-facing message for OpenRouter and related AI failures (import, etc.). */
+export function openRouterUserMessage(err: unknown): string | null {
+  if (err instanceof OpenRouterError) {
+    if (err.status === 400) {
+      try {
+        const parsed = JSON.parse(err.body) as { error?: { message?: string } }
+        const msg = parsed.error?.message
+        if (msg) {
+          return `Vision model error: ${msg}. Pick a vision-capable model in Settings → AI & OpenRouter.`
+        }
+      } catch {
+        /* ignore malformed body */
+      }
+      return 'OpenRouter rejected the request. Check your vision model in Settings → AI & OpenRouter.'
+    }
+    return describeOpenRouterError(err)
+  }
+  if (err instanceof Error) {
+    if (err.message === 'Model did not return valid JSON') {
+      return 'The AI could not parse this document. Try a clearer scan or a different file.'
+    }
+    if (err.message === 'OpenRouter API key is not configured') {
+      return 'Add your OpenRouter API key in Settings to enable document import.'
+    }
+  }
+  return null
+}
+
 export async function complete(options: CompletionOptions): Promise<CompletionResult> {
-  if (!openRouterConfigured) {
-    throw new OpenRouterError('OPENROUTER_API_KEY is not set', 500, '')
+  const settings = await getOpenRouterSettings(options.userId)
+  if (!settings.apiKey) {
+    throw new OpenRouterError('OpenRouter API key is not configured', 500, '')
   }
 
-  const model = MODEL_BY_TASK[options.task]()
+  const model = settings.models[options.task]
 
   const body: Record<string, unknown> = {
     model,
@@ -117,10 +142,10 @@ export async function complete(options: CompletionOptions): Promise<CompletionRe
     }
   }
 
-  const response = await fetch(`${config.OPENROUTER_BASE_URL}/chat/completions`, {
+  const response = await fetch(`${settings.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${config.OPENROUTER_API_KEY}`,
+      Authorization: `Bearer ${settings.apiKey}`,
       'Content-Type': 'application/json',
       'HTTP-Referer': config.APP_URL,
       'X-Title': 'MedicalBot Platform',

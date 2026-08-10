@@ -368,7 +368,7 @@ export async function runAgent(opts: {
   let model = ''
 
   for (let step = 0; step < MAX_STEPS; step++) {
-    const res = await complete({ task: 'chat', messages, tools: TOOLS, signal: opts.signal })
+    const res = await complete({ task: 'chat', messages, tools: TOOLS, signal: opts.signal, userId: opts.userId })
     model = res.model
 
     if (!res.toolCalls.length) {
@@ -398,6 +398,6 @@ export async function runAgent(opts: {
   }
 
   // Ran out of steps — ask for a final summary without more tools.
-  const final = await complete({ task: 'chat', messages, signal: opts.signal })
+  const final = await complete({ task: 'chat', messages, signal: opts.signal, userId: opts.userId })
   return { reply: final.content || 'Done.', model: final.model || model, actions, toolCalls }
 }

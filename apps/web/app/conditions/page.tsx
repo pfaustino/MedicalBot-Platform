@@ -5,9 +5,10 @@ import { AppGate } from '../components/AppGate'
 import { Modal } from '../components/Modal'
 import { useToast } from '../components/Toast'
 import { Loaded } from '../components/Loader'
+import { ConditionPicker, type ConditionSelection } from '../components/ConditionPicker'
 import { apiPost, apiDelete } from '@/lib/api'
 import { METRIC_LABELS, formatDate, titleCase } from '@/lib/format'
-import { CONDITION_KEYS, CONDITION_LABELS, getConditionReference } from '@medbot/shared'
+import { getConditionReference } from '@medbot/shared'
 import type { ConditionKey } from '@medbot/shared'
 
 interface TrackedMetric {
@@ -112,7 +113,7 @@ function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }
     if (!window.confirm(`Remove ${c.label}? This stops tracking it and removes it from your profile.`)) return
     setBusy(true)
     try {
-      await apiDelete(`/api/conditions/${c.key}`)
+      await apiDelete(`/api/conditions/${encodeURIComponent(c.key)}`)
       toast.show(`${c.label} removed.`, 'ok')
       onChanged()
     } catch {
@@ -212,7 +213,7 @@ function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }
 }
 
 function ConditionForm({ onDone }: { onDone: () => void }) {
-  const [key, setKey] = useState<string>(CONDITION_KEYS[0])
+  const [selection, setSelection] = useState<ConditionSelection | null>(null)
   const [diagnosedAt, setDiagnosedAt] = useState('')
   const [status, setStatus] = useState('active')
   const [notes, setNotes] = useState('')
@@ -223,7 +224,18 @@ function ConditionForm({ onDone }: { onDone: () => void }) {
     e.preventDefault()
     setError(null)
 
-    const body: Record<string, unknown> = { key, status }
+    const name = selection?.name.trim() ?? ''
+    if (name.length < 2) {
+      setError('Search for a condition or type a name (at least 2 characters).')
+      return
+    }
+
+    const body: Record<string, unknown> = {
+      name,
+      status,
+      moduleKey: selection?.moduleKey ?? null,
+      icdCode: selection?.icdCode ?? null,
+    }
     if (diagnosedAt) body.diagnosedAt = diagnosedAt
     if (notes.trim()) body.notes = notes.trim()
 
@@ -242,13 +254,15 @@ function ConditionForm({ onDone }: { onDone: () => void }) {
       <div className="form-grid">
         <label className="field">
           <span>Condition</span>
-          <select value={key} onChange={(e) => setKey(e.target.value)} autoFocus>
-            {CONDITION_KEYS.map((k) => (
-              <option key={k} value={k}>
-                {CONDITION_LABELS[k]}
-              </option>
-            ))}
-          </select>
+          <ConditionPicker
+            value={selection}
+            onChange={setSelection}
+            error={error}
+            autoFocus
+          />
+          <p className="help-text">
+            Search tracked conditions, ICD-10 codes, or add any diagnosis in your own words.
+          </p>
         </label>
         <label className="field">
           <span>Diagnosed (optional)</span>

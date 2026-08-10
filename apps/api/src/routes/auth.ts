@@ -1,10 +1,13 @@
 import { randomBytes } from 'node:crypto'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { eq } from 'drizzle-orm'
+import { z } from 'zod'
 import { TERMS_VERSION } from '@medbot/shared'
 import { config, googleConfigured } from '../config.js'
 import { db, schema } from '../db/index.js'
 import { encrypt } from '../lib/crypto.js'
+import { hashPassword, verifyPassword } from '../lib/password.js'
+import { rateLimit } from '../lib/rate-limit.js'
 
 /**
  * Google OAuth. Scopes are requested incrementally (SPEC.md §6) — login asks
@@ -13,6 +16,22 @@ import { encrypt } from '../lib/crypto.js'
  */
 
 const LOGIN_SCOPES = ['openid', 'email', 'profile']
+
+const loginBody = z.object({
+  email: z.string().trim().toLowerCase().email(),
+  password: z.string().min(1),
+})
+
+const changePasswordBody = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8, 'New password must be at least 8 characters'),
+})
+
+const LOGIN_RATE = { max: 10, windowMs: 15 * 60 * 1000 }
+
+function clientIp(request: FastifyRequest): string {
+  return request.ip
+}
 
 export const INCREMENTAL_SCOPES = {
   calendar: ['https://www.googleapis.com/auth/calendar.events'],
@@ -31,7 +50,7 @@ declare module 'fastify' {
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.get('/auth/google', async (request, reply) => {
     if (!googleConfigured) {
-      return reply.code(503).send({ error: 'Google OAuth is not configured' })
+      return reply.redirect(`${config.APP_URL}/?signin=google-unconfigured`)
     }
 
     const state = randomBytes(16).toString('hex')
@@ -110,6 +129,93 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ ok: true })
   })
 
+  app.post('/auth/admin/login', async (request, reply) => {
+    const limit = rateLimit(`admin-login:${clientIp(request)}`, LOGIN_RATE)
+    if (!limit.allowed) {
+      return reply
+        .code(429)
+        .send({ error: 'Too many login attempts. Try again later.', retryAfterSec: limit.retryAfterSec })
+    }
+
+    const parsed = loginBody.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Invalid email or password' })
+    }
+
+    const { email, password } = parsed.data
+
+    const [user] = await db
+      .select({
+        id: schema.users.id,
+        email: schema.users.email,
+        role: schema.users.role,
+        passwordHash: schema.users.passwordHash,
+        mustChangePassword: schema.users.mustChangePassword,
+      })
+      .from(schema.users)
+      .where(eq(schema.users.email, email))
+      .limit(1)
+
+    if (
+      !user?.passwordHash ||
+      (user.role !== 'admin' && user.role !== 'owner') ||
+      !(await verifyPassword(password, user.passwordHash))
+    ) {
+      return reply.code(401).send({ error: 'Invalid email or password' })
+    }
+
+    request.session.userId = user.id
+    return reply.send({
+      ok: true,
+      mustChangePassword: user.mustChangePassword,
+      email: user.email,
+      role: user.role,
+    })
+  })
+
+  app.post('/auth/change-password', async (request, reply) => {
+    const userId = request.session.userId
+    if (!userId) return reply.code(401).send({ error: 'Not authenticated' })
+
+    const limit = rateLimit(`change-password:${clientIp(request)}`, LOGIN_RATE)
+    if (!limit.allowed) {
+      return reply
+        .code(429)
+        .send({ error: 'Too many attempts. Try again later.', retryAfterSec: limit.retryAfterSec })
+    }
+
+    const parsed = changePasswordBody.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Invalid password', issues: parsed.error.issues })
+    }
+
+    const [user] = await db
+      .select({ passwordHash: schema.users.passwordHash })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1)
+
+    if (!user?.passwordHash) {
+      return reply.code(400).send({ error: 'Password login is not enabled for this account' })
+    }
+
+    if (!(await verifyPassword(parsed.data.currentPassword, user.passwordHash))) {
+      return reply.code(401).send({ error: 'Current password is incorrect' })
+    }
+
+    const now = new Date()
+    await db
+      .update(schema.users)
+      .set({
+        passwordHash: await hashPassword(parsed.data.newPassword),
+        mustChangePassword: false,
+        updatedAt: now,
+      })
+      .where(eq(schema.users.id, userId))
+
+    return reply.send({ ok: true })
+  })
+
   app.get('/auth/me', async (request, reply) => {
     const userId = request.session.userId
     if (!userId) return reply.code(401).send({ error: 'Not authenticated' })
@@ -122,6 +228,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         onboardedAt: schema.users.onboardedAt,
         termsAcceptedAt: schema.users.termsAcceptedAt,
         termsVersion: schema.users.termsVersion,
+        mustChangePassword: schema.users.mustChangePassword,
+        hasPassword: schema.users.passwordHash,
       })
       .from(schema.users)
       .where(eq(schema.users.id, userId))
@@ -129,8 +237,15 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
     if (!user) return reply.code(401).send({ error: 'Not authenticated' })
     return reply.send({
-      ...user,
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      onboardedAt: user.onboardedAt,
+      termsAcceptedAt: user.termsAcceptedAt,
+      termsVersion: user.termsVersion,
       isAdmin: user.role === 'admin' || user.role === 'owner',
+      mustChangePassword: user.mustChangePassword,
+      hasPassword: Boolean(user.hasPassword),
       needsTermsAcceptance: needsTermsAcceptance(user.termsAcceptedAt, user.termsVersion),
       currentTermsVersion: TERMS_VERSION,
     })

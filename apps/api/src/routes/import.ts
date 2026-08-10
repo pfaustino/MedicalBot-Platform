@@ -11,9 +11,10 @@ import {
   LAB_FLAGS,
   normalizeMetricInput,
 } from '@medbot/shared'
-import { openRouterConfigured } from '../config.js'
+import { isOpenRouterConfigured } from '../lib/openrouter-settings.js'
 import { db, schema } from '../db/index.js'
 import { extractDocument } from '../ai/extract-document.js'
+import { openRouterUserMessage } from '../ai/openrouter.js'
 import { requireUser } from './auth.js'
 
 /**
@@ -54,9 +55,10 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
 
   // Base64 data URLs are large, so this route gets a bigger body limit.
   app.post('/import/parse', { bodyLimit: 20 * 1024 * 1024 }, async (request, reply) => {
-    if (!openRouterConfigured) {
+    const userId = request.session.userId!
+    if (!(await isOpenRouterConfigured(userId))) {
       return reply.code(503).send({
-        error: 'Document import needs OPENROUTER_API_KEY set on the server.',
+        error: 'Add your OpenRouter API key in Settings to enable document import.',
         configured: false,
       })
     }
@@ -75,6 +77,7 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
 
     try {
       const extracted = await extractDocument({
+        userId,
         filename: filename ?? 'document',
         mimeType,
         dataUrl,
@@ -82,7 +85,10 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
       return reply.send(extracted)
     } catch (err) {
       request.log.error({ err: err instanceof Error ? err.message : 'unknown' }, 'Document parse failed')
-      return reply.code(502).send({ error: 'Could not read that document. Try a clearer scan or a different file.' })
+      const message =
+        openRouterUserMessage(err) ??
+        'Could not read that document. Try a clearer scan or a different file.'
+      return reply.code(502).send({ error: message })
     }
   })
 

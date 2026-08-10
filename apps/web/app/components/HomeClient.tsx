@@ -31,8 +31,10 @@ export function HomeClient() {
   const [signupAgreed, setSignupAgreed] = useState(false)
   const [showSignupTerms, setShowSignupTerms] = useState(false)
   const [demoAvailable, setDemoAvailable] = useState(false)
+  const [googleAvailable, setGoogleAvailable] = useState(false)
   const [demoBusy, setDemoBusy] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [signinNotice, setSigninNotice] = useState<string | null>(null)
 
   const loadSession = useCallback(async () => {
     setLoadError(null)
@@ -51,8 +53,12 @@ export function HomeClient() {
       if (meRes.ok) setUser(await meRes.json())
       else setUser(null)
       if (healthRes.ok) {
-        const health = (await healthRes.json()) as { checks?: { demoMode?: boolean } }
-        setDemoAvailable(Boolean(health.checks?.demoMode))
+        const health = (await healthRes.json()) as {
+          checks?: { demoMode?: boolean; google?: boolean }
+        }
+        const google = Boolean(health.checks?.google)
+        setGoogleAvailable(google)
+        setDemoAvailable(Boolean(health.checks?.demoMode) || !google)
       }
     } catch {
       setLoadError(
@@ -77,6 +83,11 @@ export function HomeClient() {
 
   useEffect(() => {
     void loadSession()
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('signin') === 'google-unconfigured') {
+      setSigninNotice('Google sign-in is not set up on this server. Use Enter demo below.')
+      window.history.replaceState({}, '', '/')
+    }
   }, [loadSession])
 
   // After OAuth, auto-record acceptance if the user agreed on the signup screen.
@@ -160,38 +171,49 @@ export function HomeClient() {
             Metric tracking and the assistant come next.
           </p>
 
-          {signupAgreed ? (
-            <p>
-              <a className="btn-primary" href={`${API_URL}/auth/google`}>
-                Sign in with Google
-              </a>
-            </p>
+          {signinNotice && <p className="field-error">{signinNotice}</p>}
+
+          {googleAvailable ? (
+            signupAgreed ? (
+              <p>
+                <a className="btn-primary" href={`${API_URL}/auth/google`}>
+                  Sign in with Google
+                </a>
+              </p>
+            ) : (
+              <p>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => setShowSignupTerms(true)}
+                >
+                  Create account / Sign in
+                </button>
+              </p>
+            )
           ) : (
-            <p>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={() => setShowSignupTerms(true)}
-              >
-                Create account / Sign in
-              </button>
+            <p className="hint">
+              Google sign-in is not configured locally. Use <strong>Enter demo</strong> below —
+              no Google account needed.
             </p>
           )}
 
-          <p className="hint">
-            You must review and accept our Terms before signing in.
-          </p>
+          {googleAvailable && (
+            <p className="hint">
+              You must review and accept our Terms before signing in.
+            </p>
+          )}
         </div>
       )}
 
       {demoAvailable && !signedIn && (
         <div className="card">
-          <strong>Explore with mock data</strong>
+          <strong>{googleAvailable ? 'Explore with mock data' : 'Sign in to explore'}</strong>
           <p className="hint">
             Signs you into a demo account preloaded with 90 days of generated readings — no
             Google account needed. Clear it any time from Settings.
           </p>
-          <button type="button" className="btn-secondary" onClick={() => void enterDemo()}>
+          <button type="button" className={googleAvailable ? 'btn-secondary' : 'btn-primary'} onClick={() => void enterDemo()}>
             {demoBusy ? 'Loading…' : 'Enter demo'}
           </button>
         </div>

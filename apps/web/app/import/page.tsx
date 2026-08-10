@@ -1,10 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AppGate } from '../components/AppGate'
 import { ImportParsingProgress } from '../components/ImportParsingProgress'
 import { useToast } from '../components/Toast'
-import { apiPost, ApiError } from '@/lib/api'
+import { apiErrorMessage, apiGet, apiPost, ApiError } from '@/lib/api'
 import { METRIC_LABELS } from '@/lib/format'
 
 interface Lab {
@@ -136,6 +136,12 @@ export default function ImportPage() {
   const [error, setError] = useState<string | null>(null)
   const [notConfigured, setNotConfigured] = useState(false)
 
+  useEffect(() => {
+    apiGet<{ ai: { configured: boolean } }>('/api/settings/ai')
+      .then((d) => setNotConfigured(!d.ai.configured))
+      .catch(() => {})
+  }, [])
+
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = ''
@@ -198,8 +204,14 @@ export default function ImportPage() {
       if (total === 0) toast.show('No records found in that document.', 'info')
     } catch (err) {
       setPhase('idle')
-      if (err instanceof ApiError && err.status === 503) {
-        setNotConfigured(true)
+      if (err instanceof ApiError) {
+        if (err.status === 503) {
+          setNotConfigured(true)
+        }
+        setError(
+          apiErrorMessage(err.body) ??
+            'Could not read that document. Try a clearer scan or a different file.',
+        )
       } else {
         setError('Could not read that document. Try a clearer scan or a different file.')
       }
@@ -326,7 +338,8 @@ export default function ImportPage() {
           <div className="callout danger">
             <strong>Import not enabled.</strong>
             <p>
-              Set <code>OPENROUTER_API_KEY</code> on the API service to turn on document reading.
+              Add your OpenRouter API key in <a href="/settings">Settings</a> to turn on document
+              reading.
             </p>
           </div>
         )}

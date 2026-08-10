@@ -1,9 +1,20 @@
 import type { FastifyInstance } from 'fastify'
 import { and, asc, desc, eq, gte } from 'drizzle-orm'
 import { adherenceRate, type AdherenceEvent } from '@medbot/shared'
-import type { ConditionKey } from '@medbot/shared'
-import { modulesFor } from '@medbot/conditions'
+import {
+  CONDITION_KEYS,
+  conditionDisplayLabel,
+  searchConditionCatalog,
+  type ConditionKey,
+} from '@medbot/shared'
+import { getModule, modulesFor } from '@medbot/conditions'
 import { db, schema } from '../db/index.js'
+import {
+  fetchOpenRouterModels,
+  filterOpenRouterModels,
+  OpenRouterModelsError,
+} from '../lib/openrouter-models.js'
+import { getOpenRouterSettings, getOpenRouterSettingsView } from '../lib/openrouter-settings.js'
 import { requireUser } from './auth.js'
 
 /**
@@ -31,6 +42,44 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ profile: profile ?? null, careTeam: team })
   })
 
+  app.get('/settings/ai', async (request, reply) => {
+    const userId = request.session.userId!
+    const ai = await getOpenRouterSettingsView(userId)
+    return reply.send({ ai })
+  })
+
+  app.get('/settings/ai/models', async (request, reply) => {
+    const userId = request.session.userId!
+    const settings = await getOpenRouterSettings(userId)
+    if (!settings.apiKey) {
+      return reply.code(503).send({
+        error:
+          'OpenRouter API key is not configured. Add your key above to browse models, or ask an admin to set a server-wide key.',
+      })
+    }
+
+    const q = String((request.query as { q?: string }).q ?? '')
+    try {
+      const all = await fetchOpenRouterModels(settings.apiKey, settings.baseUrl)
+      const models = filterOpenRouterModels(all, q)
+      return reply.send({ models })
+    } catch (err) {
+      if (err instanceof OpenRouterModelsError) {
+        return reply.code(502).send({ error: err.message })
+      }
+      throw err
+    }
+  })
+
+  app.get('/conditions/search', async (request, reply) => {
+    const q = String((request.query as { q?: string }).q ?? '')
+    const results = searchConditionCatalog(q, 25).map((r) => ({
+      ...r,
+      hasModule: r.moduleKey ? getModule(r.moduleKey) !== null : false,
+    }))
+    return reply.send({ results })
+  })
+
   app.get('/conditions', async (request, reply) => {
     const userId = request.session.userId!
 
@@ -40,14 +89,18 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
       .where(eq(schema.conditions.userId, userId))
       .orderBy(asc(schema.conditions.key))
 
-    const modules = modulesFor(rows.map((r) => r.key as ConditionKey))
+    const moduleKeys = rows
+      .map((r) => r.key)
+      .filter((k): k is ConditionKey => CONDITION_KEYS.includes(k as ConditionKey))
+    const modules = modulesFor(moduleKeys)
 
     return reply.send({
       conditions: rows.map((row) => {
         const mod = modules.find((m) => m.key === row.key)
+        const label = mod?.label ?? conditionDisplayLabel(row)
         return {
           ...row,
-          label: mod?.label ?? row.key,
+          label,
           summary: mod?.summary ?? null,
           hasModule: Boolean(mod),
           trackedMetrics: mod?.metrics ?? [],

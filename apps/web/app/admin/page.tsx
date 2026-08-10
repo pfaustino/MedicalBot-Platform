@@ -1,9 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { AppGate } from '../components/AppGate'
-import { useMe } from '../components/useMe'
+import { useRouter } from 'next/navigation'
 import { useToast } from '../components/Toast'
+import { useMe } from '../components/useMe'
 import { apiGet, apiPost } from '@/lib/api'
 import { formatDate } from '@/lib/format'
 
@@ -36,14 +36,11 @@ const ROLE_BADGE: Record<string, string> = {
 }
 
 export default function AdminPage() {
-  return (
-    <AppGate>
-      <AdminInner />
-    </AppGate>
-  )
+  return <AdminInner />
 }
 
 function AdminInner() {
+  const router = useRouter()
   const me = useMe()
   const toast = useToast()
   const [data, setData] = useState<Overview | null>(null)
@@ -62,11 +59,21 @@ function AdminInner() {
   }, [])
 
   useEffect(() => {
-    // Wait until we know who the user is; non-admins never fire the request.
     if (me.status === 'loading') return
-    if (me.status === 'signed-in' && me.me.isAdmin) load()
-    else setError('forbidden')
-  }, [me, load])
+    if (me.status === 'anon') {
+      router.replace('/admin/login')
+      return
+    }
+    if (me.me.mustChangePassword) {
+      router.replace('/admin/change-password')
+      return
+    }
+    if (!me.me.isAdmin) {
+      setError('forbidden')
+      return
+    }
+    load()
+  }, [me, load, router])
 
   const changeRole = useCallback(
     async (user: AdminUser, role: 'user' | 'admin') => {
@@ -83,6 +90,22 @@ function AdminInner() {
     },
     [toast, load],
   )
+
+  if (me.status === 'loading' || (me.status === 'signed-in' && me.me.mustChangePassword)) {
+    return (
+      <main>
+        <p className="hint">Loading…</p>
+      </main>
+    )
+  }
+
+  if (me.status === 'anon') {
+    return (
+      <main>
+        <p className="hint">Redirecting to sign in…</p>
+      </main>
+    )
+  }
 
   if (error === 'forbidden') {
     return (
@@ -110,6 +133,11 @@ function AdminInner() {
             Platform overview and user management.
             {isOwner ? ' As the owner, you can grant or revoke admin access.' : ' Read-only for admins.'}
           </p>
+          {me.status === 'signed-in' && me.me.hasPassword && (
+            <p className="hint">
+              <a href="/admin/change-password">Change admin password</a>
+            </p>
+          )}
         </div>
       </div>
 

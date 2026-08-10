@@ -1,6 +1,24 @@
-import 'dotenv/config'
+import { config as loadDotenv } from 'dotenv'
 import { randomBytes } from 'node:crypto'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
+
+// Load env from repo root and apps/api — npm workspace cwd varies by how dev is started.
+const apiRoot = join(dirname(fileURLToPath(import.meta.url)), '../..')
+const repoRoot = join(apiRoot, '../..')
+loadDotenv({ path: join(repoRoot, '.env'), override: true })
+loadDotenv({ path: join(apiRoot, '.env'), override: true })
+
+/** PGlite on Google Drive corrupts — default local dev to AppData on Windows. */
+function defaultDatabaseUrl(): string {
+  if (process.platform === 'win32') {
+    const dir = join(homedir(), 'AppData', 'Local', 'medbot-pglite').replace(/\\/g, '/')
+    return `pglite://${dir}`
+  }
+  return 'pglite://./.data/medbot'
+}
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -9,7 +27,7 @@ const envSchema = z.object({
 
   // `pglite://<dir>` runs Postgres embedded locally; anything else is a normal
   // connection string. Defaults to embedded so a fresh clone runs with no setup.
-  DATABASE_URL: z.string().min(1).default('pglite://./.data/medbot'),
+  DATABASE_URL: z.string().min(1).default(defaultDatabaseUrl()),
   REDIS_URL: z.string().optional(),
 
   /**
@@ -44,6 +62,25 @@ const envSchema = z.object({
    * OWNER_EMAIL env var (and eventually manage owners in-app).
    */
   OWNER_EMAIL: z.string().trim().toLowerCase().email().default('travisbollenbach@gmail.com'),
+
+  /**
+   * One-time bootstrap credentials for the admin password login. Used only when
+   * no admin/owner account has a password_hash yet. The user must change this
+   * password on first sign-in.
+   */
+  BOOTSTRAP_ADMIN_EMAIL: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email()
+    .optional()
+    .or(z.literal(''))
+    .transform((v) => (v === '' ? undefined : v)),
+  BOOTSTRAP_ADMIN_PASSWORD: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() !== '' ? v : undefined))
+    .pipe(z.string().min(8).optional()),
 
   OPENROUTER_API_KEY: z.string().optional(),
   OPENROUTER_BASE_URL: z.string().url().default('https://openrouter.ai/api/v1'),
@@ -131,6 +168,8 @@ export const config = {
   ...env,
   SESSION_SECRET: sessionSecret,
   ENCRYPTION_KEY: encryptionKey,
+  // Local dev should always offer demo unless explicitly turned off.
+  DEMO_MODE: inProduction ? env.DEMO_MODE : env.DEMO_MODE || true,
 }
 export type Config = typeof config
 

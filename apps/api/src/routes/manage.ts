@@ -4,12 +4,18 @@ import { z } from 'zod'
 import {
   ADHERENCE_STATUSES,
   careTeamMemberSchema,
+  conditionCreateSchema,
   conditionSchema,
   medicationSchema,
   profileSchema,
+  resolveConditionCreate,
   scheduleSchema,
 } from '@medbot/shared'
 import { db, schema } from '../db/index.js'
+import {
+  clearOpenRouterApiKey,
+  saveOpenRouterSettings,
+} from '../lib/openrouter-settings.js'
 import { requireUser } from './auth.js'
 
 /**
@@ -52,6 +58,44 @@ export async function manageRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ ok: true })
   })
 
+  // ---- AI / OpenRouter settings ------------------------------------------
+
+  const aiSettingsBody = z.object({
+    apiKey: z.string().min(8).max(500).optional(),
+    baseUrl: z.string().url().max(500).nullable().optional(),
+    modelChat: z.string().min(1).max(200).nullable().optional(),
+    modelExtract: z.string().min(1).max(200).nullable().optional(),
+    modelAnalyze: z.string().min(1).max(200).nullable().optional(),
+    modelVision: z.string().min(1).max(200).nullable().optional(),
+  })
+
+  app.put('/settings/ai', async (request, reply) => {
+    const parsed = aiSettingsBody.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Invalid AI settings', issues: parsed.error.issues })
+    }
+    const userId = request.session.userId!
+    const b = parsed.data
+    if (
+      b.apiKey === undefined &&
+      b.baseUrl === undefined &&
+      b.modelChat === undefined &&
+      b.modelExtract === undefined &&
+      b.modelAnalyze === undefined &&
+      b.modelVision === undefined
+    ) {
+      return reply.code(400).send({ error: 'Nothing to update' })
+    }
+    await saveOpenRouterSettings(userId, b)
+    return reply.send({ ok: true })
+  })
+
+  app.delete('/settings/ai', async (request, reply) => {
+    const userId = request.session.userId!
+    await clearOpenRouterApiKey(userId)
+    return reply.send({ ok: true })
+  })
+
   // ---- Care team ---------------------------------------------------------
 
   app.post('/care-team', async (request, reply) => {
@@ -79,25 +123,49 @@ export async function manageRoutes(app: FastifyInstance): Promise<void> {
   // ---- Conditions --------------------------------------------------------
 
   app.post('/conditions', async (request, reply) => {
-    const parsed = conditionSchema.safeParse(request.body)
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'Invalid condition', issues: parsed.error.issues })
+    const legacy = conditionSchema.safeParse(request.body)
+    const created = conditionCreateSchema.safeParse(request.body)
+    if (!legacy.success && !created.success) {
+      return reply.code(400).send({
+        error: 'Invalid condition',
+        issues: created.error.issues,
+      })
     }
+
     const userId = request.session.userId!
-    const c = parsed.data
+    const row = legacy.success
+      ? {
+          key: legacy.data.key,
+          displayName: null as string | null,
+          icdCode: null as string | null,
+          diagnosedAt: legacy.data.diagnosedAt,
+          status: legacy.data.status,
+          managingProviderId: legacy.data.managingProviderId,
+          notes: legacy.data.notes,
+        }
+      : resolveConditionCreate(created.data!)
+
     await db
       .insert(schema.conditions)
       .values({
         userId,
-        key: c.key,
-        diagnosedAt: toDateStr(c.diagnosedAt),
-        status: c.status,
-        managingProviderId: c.managingProviderId,
-        notes: c.notes,
+        key: row.key,
+        displayName: row.displayName,
+        icdCode: row.icdCode,
+        diagnosedAt: toDateStr(row.diagnosedAt),
+        status: row.status,
+        managingProviderId: row.managingProviderId,
+        notes: row.notes,
       })
       .onConflictDoUpdate({
         target: [schema.conditions.userId, schema.conditions.key],
-        set: { status: c.status, diagnosedAt: toDateStr(c.diagnosedAt), notes: c.notes },
+        set: {
+          status: row.status,
+          diagnosedAt: toDateStr(row.diagnosedAt),
+          notes: row.notes,
+          displayName: row.displayName,
+          icdCode: row.icdCode,
+        },
       })
     return reply.code(201).send({ ok: true })
   })
