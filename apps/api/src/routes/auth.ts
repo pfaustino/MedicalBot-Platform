@@ -284,20 +284,40 @@ async function upsertUser(
   )
 
   return db.transaction(async (tx) => {
-    const [user] = await tx
-      .insert(schema.users)
-      .values({ googleId: profile.sub, email: profile.email, role: isOwner ? 'owner' : 'user' })
-      .onConflictDoUpdate({
-        target: schema.users.googleId,
-        set: {
-          email: profile.email,
+    // A password-only account with this email (e.g. the bootstrapped admin) gets
+    // linked to this Google identity. Inserting would hit the email unique index.
+    const [byEmail] = await tx
+      .select({ id: schema.users.id, googleId: schema.users.googleId })
+      .from(schema.users)
+      .where(eq(schema.users.email, profile.email))
+      .limit(1)
+
+    let userId: string
+    if (byEmail && !byEmail.googleId) {
+      await tx
+        .update(schema.users)
+        .set({
+          googleId: profile.sub,
           updatedAt: new Date(),
           ...(isOwner ? { role: 'owner' } : {}),
-        },
-      })
-      .returning({ id: schema.users.id })
-
-    const userId = user!.id
+        })
+        .where(eq(schema.users.id, byEmail.id))
+      userId = byEmail.id
+    } else {
+      const [user] = await tx
+        .insert(schema.users)
+        .values({ googleId: profile.sub, email: profile.email, role: isOwner ? 'owner' : 'user' })
+        .onConflictDoUpdate({
+          target: schema.users.googleId,
+          set: {
+            email: profile.email,
+            updatedAt: new Date(),
+            ...(isOwner ? { role: 'owner' } : {}),
+          },
+        })
+        .returning({ id: schema.users.id })
+      userId = user!.id
+    }
 
     await tx
       .insert(schema.profiles)
