@@ -18,7 +18,7 @@ import {
   resolveModuleForCondition,
 } from '@medbot/conditions'
 import { generateModuleConfig } from '../ai/generate-module-config.js'
-import { openRouterUserMessage } from '../ai/openrouter.js'
+import { OpenRouterError, openRouterUserMessage } from '../ai/openrouter.js'
 import { db, schema } from '../db/index.js'
 import {
   clearOpenRouterApiKey,
@@ -286,12 +286,13 @@ export async function manageRoutes(app: FastifyInstance): Promise<void> {
           { err: err instanceof Error ? err.message : 'unknown' },
           'Module config generation failed',
         )
+        const errMsg = err instanceof Error ? err.message : ''
         const message =
-          openRouterUserMessage(err) ??
-          (err instanceof Error && err.message === 'Model did not return valid JSON'
+          (err instanceof OpenRouterError ? openRouterUserMessage(err) : null) ??
+          (errMsg === 'Model did not return valid JSON' ||
+          errMsg === 'Model did not return a JSON object'
             ? 'Could not generate a tracking module for this condition. Try again.'
-            : err instanceof Error &&
-                err.message === 'Model returned a module config that failed validation'
+            : errMsg.startsWith('Model returned a module config that failed validation')
               ? 'Could not generate a valid tracking module for this condition. Try again.'
               : 'Could not generate a tracking module for this condition. Try again.')
         return reply.code(502).send({ error: message })
