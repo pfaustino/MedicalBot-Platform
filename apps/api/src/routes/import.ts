@@ -8,10 +8,12 @@ import {
   imagingMeasurementSchema,
   imagingFindingSchema,
   extractedDiagnosisSchema,
+  extractedTodoSchema,
   LAB_FLAGS,
   normalizeMetricInput,
   resolveConditionCreate,
   type ExtractedDiagnosis,
+  type ExtractedTodo,
 } from '@medbot/shared'
 import { isOpenRouterConfigured } from '../lib/openrouter-settings.js'
 import { db, schema } from '../db/index.js'
@@ -104,6 +106,32 @@ async function upsertImportedConditions(
     added++
   }
 
+  return added
+}
+
+async function createImportedTodos(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  userId: string,
+  todos: ExtractedTodo[],
+  sourceDocument: string | null | undefined,
+): Promise<number> {
+  let added = 0
+  const now = new Date()
+  for (const t of todos) {
+    const title = t.title.trim()
+    if (!title) continue
+    await tx.insert(schema.todos).values({
+      userId,
+      title,
+      notes: t.notes?.trim() || null,
+      dueAt: toDate(t.dueAt ?? null),
+      status: 'open',
+      source: 'import',
+      sourceDocument: sourceDocument ?? null,
+      updatedAt: now,
+    })
+    added++
+  }
   return added
 }
 
@@ -206,6 +234,7 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
         diagnoses: z.array(extractedDiagnosisSchema).default([]),
       })
       .nullish(),
+    todos: z.array(extractedTodoSchema).default([]),
   })
 
   app.post('/import/commit', async (request, reply) => {
@@ -214,10 +243,19 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: 'Invalid selection', issues: parsed.error.issues })
     }
     const userId = request.session.userId!
-    const { labResults, medications, vitals, sourceDocument, documentDate, diagnoses, imagingReport } =
-      parsed.data
+    const {
+      labResults,
+      medications,
+      vitals,
+      sourceDocument,
+      documentDate,
+      diagnoses,
+      imagingReport,
+      todos,
+    } = parsed.data
     let imagingAdded = 0
     let conditionsAdded = 0
+    let todosAdded = 0
 
     const allDiagnoses = [
       ...diagnoses,
@@ -233,6 +271,7 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
         diagnosedAt,
         sourceDocument,
       )
+      todosAdded = await createImportedTodos(tx, userId, todos, sourceDocument)
       for (const lab of labResults) {
         const enriched = enrichLabResult({
           ...lab,
@@ -383,6 +422,7 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
       vitalsAdded: vitals.length,
       imagingAdded,
       conditionsAdded,
+      todosAdded,
     })
   })
 

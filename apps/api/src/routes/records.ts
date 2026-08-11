@@ -193,6 +193,27 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
     })
   })
 
+  app.get('/todos', async (request, reply) => {
+    const userId = request.session.userId!
+    const rows = await db
+      .select()
+      .from(schema.todos)
+      .where(eq(schema.todos.userId, userId))
+      .orderBy(desc(schema.todos.createdAt))
+
+    const statusRank = (s: string) => (s === 'open' ? 0 : s === 'done' ? 1 : 2)
+    const todos = [...rows].sort((a, b) => {
+      const byStatus = statusRank(a.status) - statusRank(b.status)
+      if (byStatus !== 0) return byStatus
+      const aDue = a.dueAt ? +a.dueAt : Number.POSITIVE_INFINITY
+      const bDue = b.dueAt ? +b.dueAt : Number.POSITIVE_INFINITY
+      if (aDue !== bDue) return aDue - bDue
+      return +b.createdAt - +a.createdAt
+    })
+
+    return reply.send({ todos })
+  })
+
   app.get('/questionnaires', async (request, reply) => {
     const userId = request.session.userId!
 

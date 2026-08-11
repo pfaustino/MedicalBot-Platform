@@ -57,6 +57,12 @@ interface Diagnosis {
   icdCode: string | null
   include: boolean
 }
+interface TodoItem {
+  title: string
+  notes: string | null
+  dueAt: string | null
+  include: boolean
+}
 
 interface Parsed {
   documentType: string
@@ -79,6 +85,7 @@ interface Parsed {
   imagingFindings: Omit<ImagingFinding, 'include'>[]
   imagingConclusions: string[]
   diagnoses: Omit<Diagnosis, 'include'>[]
+  todos: Omit<TodoItem, 'include'>[]
 }
 
 type Phase = 'idle' | 'parsing' | 'review' | 'committing'
@@ -133,6 +140,7 @@ export default function ImportPage() {
   const [imagingFindings, setImagingFindings] = useState<ImagingFinding[]>([])
   const [imagingConclusions, setImagingConclusions] = useState<ImagingConclusion[]>([])
   const [diagnoses, setDiagnoses] = useState<Diagnosis[]>([])
+  const [todos, setTodos] = useState<TodoItem[]>([])
   const [error, setError] = useState<string | null>(null)
   const [notConfigured, setNotConfigured] = useState(false)
 
@@ -192,6 +200,7 @@ export default function ImportPage() {
       setImagingFindings(parsed.imagingFindings.map((f) => ({ ...f, include: true })))
       setImagingConclusions(parsed.imagingConclusions.map((text) => ({ text, include: true })))
       setDiagnoses(parsed.diagnoses.map((d) => ({ ...d, include: true })))
+      setTodos((parsed.todos ?? []).map((t) => ({ ...t, include: true })))
       setPhase('review')
       const total =
         parsed.labResults.length +
@@ -200,7 +209,8 @@ export default function ImportPage() {
         parsed.imagingMeasurements.length +
         parsed.imagingFindings.length +
         parsed.imagingConclusions.length +
-        parsed.diagnoses.length
+        parsed.diagnoses.length +
+        (parsed.todos?.length ?? 0)
       if (total === 0) toast.show('No records found in that document.', 'info')
     } catch (err) {
       setPhase('idle')
@@ -250,10 +260,12 @@ export default function ImportPage() {
         vitalsAdded: number
         imagingAdded: number
         conditionsAdded: number
+        todosAdded: number
       }>('/api/import/commit', {
         sourceDocument: filename,
         documentDate: meta?.documentDate,
         diagnoses: selectedDiagnoses.map(({ include, ...rest }) => rest),
+        todos: todos.filter((t) => t.include).map(({ include, ...rest }) => rest),
         labResults: labs.filter((l) => l.include).map(({ include, ...rest }) => rest),
         medications: meds.filter((m) => m.include).map(({ include, ...rest }) => rest),
         vitals: vitals.filter((v) => v.include).map(({ include, ...rest }) => rest),
@@ -277,6 +289,7 @@ export default function ImportPage() {
       })
       const parts = [
         res.conditionsAdded ? `${res.conditionsAdded} condition(s)` : '',
+        res.todosAdded ? `${res.todosAdded} to-do(s)` : '',
         res.labsAdded ? `${res.labsAdded} lab(s)` : '',
         res.medsAdded ? `${res.medsAdded} medication(s)` : '',
         res.vitalsAdded ? `${res.vitalsAdded} vital(s)` : '',
@@ -300,6 +313,7 @@ export default function ImportPage() {
     setImagingFindings([])
     setImagingConclusions([])
     setDiagnoses([])
+    setTodos([])
     setFilename('')
   }
 
@@ -310,7 +324,8 @@ export default function ImportPage() {
     imagingMeasurements.filter((m) => m.include).length +
     imagingFindings.filter((f) => f.include).length +
     imagingConclusions.filter((c) => c.include).length +
-    diagnoses.filter((d) => d.include).length
+    diagnoses.filter((d) => d.include).length +
+    todos.filter((t) => t.include).length
 
   const hasAnyItems =
     labs.length > 0 ||
@@ -319,7 +334,8 @@ export default function ImportPage() {
     imagingMeasurements.length > 0 ||
     imagingFindings.length > 0 ||
     imagingConclusions.length > 0 ||
-    diagnoses.length > 0
+    diagnoses.length > 0 ||
+    todos.length > 0
 
   const selectedLabsMissingDate = labs.filter((l) => l.include && !l.collectedAt).length
   const selectedVitalsMissingDate = vitals.filter((v) => v.include && !v.at).length
@@ -461,6 +477,82 @@ export default function ImportPage() {
                           </td>
                           <td>{d.name}</td>
                           <td className="hint">{d.icdCode ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
+
+            {todos.length > 0 && (
+              <section>
+                <h2>To Dos ({todos.length})</h2>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Add</th>
+                        <th>Title</th>
+                        <th>Due</th>
+                        <th>Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {todos.map((t, i) => (
+                        <tr key={i}>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={t.include}
+                              onChange={(e) =>
+                                setTodos((p) =>
+                                  p.map((x, j) => (j === i ? { ...x, include: e.target.checked } : x)),
+                                )
+                              }
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="text"
+                              value={t.title}
+                              onChange={(e) =>
+                                setTodos((p) =>
+                                  p.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)),
+                                )
+                              }
+                              aria-label={`To-do title ${i + 1}`}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="date"
+                              value={toDateInputValue(t.dueAt)}
+                              onChange={(e) =>
+                                setTodos((p) =>
+                                  p.map((x, j) =>
+                                    j === i ? { ...x, dueAt: fromDateInputValue(e.target.value) } : x,
+                                  ),
+                                )
+                              }
+                              aria-label={`Due date for ${t.title}`}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="text"
+                              value={t.notes ?? ''}
+                              onChange={(e) =>
+                                setTodos((p) =>
+                                  p.map((x, j) =>
+                                    j === i ? { ...x, notes: e.target.value || null } : x,
+                                  ),
+                                )
+                              }
+                              placeholder="—"
+                              aria-label={`Notes for ${t.title}`}
+                            />
+                          </td>
                         </tr>
                       ))}
                     </tbody>

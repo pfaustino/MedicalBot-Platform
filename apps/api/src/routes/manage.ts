@@ -12,6 +12,8 @@ import {
   resolveConditionCreate,
   scheduleSchema,
   storedModuleConfigSchema,
+  todoCreateSchema,
+  todoPatchSchema,
 } from '@medbot/shared'
 import {
   lookupTemplateModuleConfig,
@@ -509,6 +511,78 @@ export async function manageRoutes(app: FastifyInstance): Promise<void> {
       .update(schema.appointments)
       .set(set)
       .where(and(eq(schema.appointments.userId, userId), eq(schema.appointments.id, id)))
+    return reply.send({ ok: true })
+  })
+
+  // ---- To-dos ------------------------------------------------------------
+
+  app.post('/todos', async (request, reply) => {
+    const parsed = todoCreateSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Invalid to-do', issues: parsed.error.issues })
+    }
+    const userId = request.session.userId!
+    const t = parsed.data
+    const now = new Date()
+    const [row] = await db
+      .insert(schema.todos)
+      .values({
+        userId,
+        title: t.title,
+        notes: t.notes,
+        dueAt: t.dueAt,
+        status: t.status,
+        source: 'manual',
+        completedAt: t.status === 'done' ? now : null,
+        updatedAt: now,
+      })
+      .returning({ id: schema.todos.id })
+    return reply.code(201).send({ id: row!.id })
+  })
+
+  app.patch('/todos/:id', async (request, reply) => {
+    const parsed = todoPatchSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Invalid update', issues: parsed.error.issues })
+    }
+    const userId = request.session.userId!
+    const { id } = request.params as { id: string }
+    const patch = parsed.data
+    if (Object.keys(patch).length === 0) return reply.send({ ok: true })
+
+    const [existing] = await db
+      .select()
+      .from(schema.todos)
+      .where(and(eq(schema.todos.userId, userId), eq(schema.todos.id, id)))
+      .limit(1)
+    if (!existing) return reply.code(404).send({ error: 'To-do not found' })
+
+    const now = new Date()
+    const nextStatus = patch.status ?? existing.status
+    const set: Record<string, unknown> = { updatedAt: now }
+    if (patch.title !== undefined) set.title = patch.title
+    if (patch.notes !== undefined) set.notes = patch.notes
+    if (patch.dueAt !== undefined) set.dueAt = patch.dueAt
+    if (patch.status !== undefined) set.status = patch.status
+    if (nextStatus === 'done' && existing.status !== 'done') {
+      set.completedAt = now
+    } else if (nextStatus !== 'done') {
+      set.completedAt = null
+    }
+
+    await db
+      .update(schema.todos)
+      .set(set)
+      .where(and(eq(schema.todos.userId, userId), eq(schema.todos.id, id)))
+    return reply.send({ ok: true })
+  })
+
+  app.delete('/todos/:id', async (request, reply) => {
+    const userId = request.session.userId!
+    const { id } = request.params as { id: string }
+    await db
+      .delete(schema.todos)
+      .where(and(eq(schema.todos.userId, userId), eq(schema.todos.id, id)))
     return reply.send({ ok: true })
   })
 }

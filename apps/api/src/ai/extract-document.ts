@@ -53,6 +53,12 @@ export interface ExtractedDiagnosis {
   icdCode: string | null
 }
 
+export interface ExtractedTodo {
+  title: string
+  notes: string | null
+  dueAt: string | null
+}
+
 export interface ExtractedDocument {
   documentType: string
   documentDate: string | null
@@ -73,6 +79,7 @@ export interface ExtractedDocument {
   imagingFindings: ExtractedImagingFinding[]
   imagingConclusions: string[]
   diagnoses: ExtractedDiagnosis[]
+  todos: ExtractedTodo[]
   notes: string | null
 }
 
@@ -107,6 +114,9 @@ Return ONLY a single JSON object, no prose and no code fences, in exactly this s
   "diagnoses": [
     { "name": string, "icdCode": string | null }
   ],
+  "todos": [
+    { "title": string, "notes": string | null, "dueAt": string | null }
+  ],
   "notes": string | null
 }
 
@@ -120,6 +130,9 @@ medications item shape:
 
 vitals item shape:
 { "type": string, "value": number | null, "valueSecondary": number | null, "unit": string | null, "at": string | null }
+
+todos item shape:
+{ "title": string, "notes": string | null, "dueAt": string | null }
 
 Rules:
 - For "vitals.type" use: blood_pressure, heart_rate, weight, temperature, spo2, blood_glucose. For blood_pressure put systolic in "value" and diastolic in "valueSecondary". Use exam date for "at" when printed.
@@ -142,6 +155,8 @@ Rules:
   - Also put weight and blood_pressure in vitals if printed in the header.
 
 - BMP/CMP lab components: Sodium, BUN, Calcium, Potassium, Chloride, Total CO2, Anion Gap, Glucose, Creatinine, eGFR.
+
+- **Follow-ups / action items (todos)**: extract concrete next steps the patient or care team should take when the document states them — e.g. labs to schedule or repeat, referrals to book, medication changes to start/stop/adjust, appointments to schedule, imaging to obtain, lifestyle instructions framed as tasks. Put each as a short actionable title; put timing/context in notes; put a due/target date in dueAt (ISO YYYY-MM-DD) only when printed. Do not invent follow-ups that are not written or clearly implied as instructions.
 
 - Only include items actually present. Empty arrays are fine.
 - Never invent values. If a field is not printed, use null.
@@ -287,6 +302,14 @@ function normalize(d: Record<string, unknown>): ExtractedDocument {
       .map((r) => ({
         name: str(r.name)!,
         icdCode: str(r.icdCode),
+      })),
+    todos: arr(d.todos)
+      .map((r) => r as Record<string, unknown>)
+      .filter((r) => str(r.title))
+      .map((r) => ({
+        title: str(r.title)!,
+        notes: str(r.notes),
+        dueAt: str(r.dueAt),
       })),
   }
 }

@@ -213,6 +213,32 @@ export const appointments = pgTable(
   (t) => [index('appointments_user_time_idx').on(t.userId, t.startsAt)],
 )
 
+/**
+ * Personal follow-ups — manual entries plus action items pulled from document
+ * import (labs to schedule, referrals, med changes, appointments to book).
+ */
+export const todos = pgTable(
+  'todos',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    notes: text('notes'),
+    dueAt: timestamp('due_at', { withTimezone: true }),
+    // open | done | cancelled
+    status: text('status').notNull().default('open'),
+    // manual | import
+    source: text('source').notNull().default('manual'),
+    sourceDocument: text('source_document'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (t) => [index('todos_user_status_idx').on(t.userId, t.status)],
+)
+
 export const questionnaireResponses = pgTable(
   'questionnaire_responses',
   {
