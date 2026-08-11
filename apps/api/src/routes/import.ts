@@ -10,6 +10,8 @@ import {
   extractedDiagnosisSchema,
   LAB_FLAGS,
   normalizeMetricInput,
+  resolveConditionCreate,
+  type ExtractedDiagnosis,
 } from '@medbot/shared'
 import { isOpenRouterConfigured } from '../lib/openrouter-settings.js'
 import { db, schema } from '../db/index.js'
@@ -48,6 +50,61 @@ const toDate = (s: string | null | undefined): Date | null => {
   if (!s) return null
   const d = new Date(s)
   return Number.isNaN(+d) ? null : d
+}
+
+/** `date` columns are YYYY-MM-DD strings, not timestamps. */
+const toDateStr = (d: Date | null | undefined): string | null =>
+  d ? d.toISOString().slice(0, 10) : null
+
+async function upsertImportedConditions(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  userId: string,
+  diagnoses: ExtractedDiagnosis[],
+  diagnosedAt: Date | null,
+  sourceDocument: string | null | undefined,
+): Promise<number> {
+  const seen = new Set<string>()
+  let added = 0
+  const importNote = sourceDocument ? `Imported from ${sourceDocument}` : null
+
+  for (const d of diagnoses) {
+    const row = resolveConditionCreate({
+      name: d.name,
+      icdCode: d.icdCode,
+      status: 'active',
+      diagnosedAt,
+      managingProviderId: null,
+      notes: importNote,
+    })
+    if (seen.has(row.key)) continue
+    seen.add(row.key)
+
+    await tx
+      .insert(schema.conditions)
+      .values({
+        userId,
+        key: row.key,
+        displayName: row.displayName,
+        icdCode: row.icdCode,
+        diagnosedAt: toDateStr(row.diagnosedAt),
+        status: row.status,
+        managingProviderId: row.managingProviderId,
+        notes: row.notes,
+      })
+      .onConflictDoUpdate({
+        target: [schema.conditions.userId, schema.conditions.key],
+        set: {
+          status: row.status,
+          displayName: row.displayName,
+          icdCode: row.icdCode,
+          diagnosedAt: toDateStr(row.diagnosedAt),
+          notes: row.notes,
+        },
+      })
+    added++
+  }
+
+  return added
 }
 
 export async function importRoutes(app: FastifyInstance): Promise<void> {
@@ -94,6 +151,8 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
 
   const commitBody = z.object({
     sourceDocument: z.string().max(300).nullish(),
+    documentDate: z.string().nullish(),
+    diagnoses: z.array(extractedDiagnosisSchema).default([]),
     labResults: z
       .array(
         z.object({
@@ -155,10 +214,25 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: 'Invalid selection', issues: parsed.error.issues })
     }
     const userId = request.session.userId!
-    const { labResults, medications, vitals, sourceDocument, imagingReport } = parsed.data
+    const { labResults, medications, vitals, sourceDocument, documentDate, diagnoses, imagingReport } =
+      parsed.data
     let imagingAdded = 0
+    let conditionsAdded = 0
+
+    const allDiagnoses = [
+      ...diagnoses,
+      ...(imagingReport?.diagnoses ?? []),
+    ]
+    const diagnosedAt = toDate(imagingReport?.examAt ?? documentDate)
 
     await db.transaction(async (tx) => {
+      conditionsAdded = await upsertImportedConditions(
+        tx,
+        userId,
+        allDiagnoses,
+        diagnosedAt,
+        sourceDocument,
+      )
       for (const lab of labResults) {
         const enriched = enrichLabResult({
           ...lab,
@@ -308,6 +382,7 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
       medsAdded: medications.length,
       vitalsAdded: vitals.length,
       imagingAdded,
+      conditionsAdded,
     })
   })
 

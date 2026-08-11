@@ -249,8 +249,11 @@ export default function ImportPage() {
         medsAdded: number
         vitalsAdded: number
         imagingAdded: number
+        conditionsAdded: number
       }>('/api/import/commit', {
         sourceDocument: filename,
+        documentDate: meta?.documentDate,
+        diagnoses: selectedDiagnoses.map(({ include, ...rest }) => rest),
         labResults: labs.filter((l) => l.include).map(({ include, ...rest }) => rest),
         medications: meds.filter((m) => m.include).map(({ include, ...rest }) => rest),
         vitals: vitals.filter((v) => v.include).map(({ include, ...rest }) => rest),
@@ -273,6 +276,7 @@ export default function ImportPage() {
           : null,
       })
       const parts = [
+        res.conditionsAdded ? `${res.conditionsAdded} condition(s)` : '',
         res.labsAdded ? `${res.labsAdded} lab(s)` : '',
         res.medsAdded ? `${res.medsAdded} medication(s)` : '',
         res.vitalsAdded ? `${res.vitalsAdded} vital(s)` : '',
