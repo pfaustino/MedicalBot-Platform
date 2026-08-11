@@ -10,7 +10,12 @@ import {
   profileSchema,
   resolveConditionCreate,
   scheduleSchema,
+  storedModuleConfigSchema,
 } from '@medbot/shared'
+import {
+  buildDefaultModuleConfig,
+  resolveModuleForCondition,
+} from '@medbot/conditions'
 import { db, schema } from '../db/index.js'
 import {
   clearOpenRouterApiKey,
@@ -177,6 +182,56 @@ export async function manageRoutes(app: FastifyInstance): Promise<void> {
       .delete(schema.conditions)
       .where(and(eq(schema.conditions.userId, userId), eq(schema.conditions.key, key)))
     return reply.send({ ok: true })
+  })
+
+  /**
+   * Enable a tracking module for a condition that has none yet.
+   * Code modules already count as active; otherwise persists a default
+   * StoredModuleConfig on the row (dynamic module).
+   */
+  app.post('/conditions/:key/module', async (request, reply) => {
+    const userId = request.session.userId!
+    const { key } = request.params as { key: string }
+
+    const [row] = await db
+      .select()
+      .from(schema.conditions)
+      .where(and(eq(schema.conditions.userId, userId), eq(schema.conditions.key, key)))
+      .limit(1)
+
+    if (!row) {
+      return reply.code(404).send({ error: 'Condition not found' })
+    }
+
+    const existing = resolveModuleForCondition(row)
+    if (existing) {
+      return reply.send({ ok: true, alreadyActive: true })
+    }
+
+    const body = storedModuleConfigSchema.partial().safeParse(request.body ?? {})
+    if (!body.success) {
+      return reply.code(400).send({ error: 'Invalid module config', issues: body.error.issues })
+    }
+
+    const defaults = buildDefaultModuleConfig({
+      key: row.key,
+      displayName: row.displayName,
+      icdCode: row.icdCode,
+    })
+    const config = storedModuleConfigSchema.parse({
+      ...defaults,
+      ...body.data,
+      metrics: body.data.metrics?.length ? body.data.metrics : defaults.metrics,
+    })
+
+    // If the row already maps to a built-in code module, nothing to store —
+    // resolveModuleForCondition would have returned it above. Persist dynamic config.
+    await db
+      .update(schema.conditions)
+      .set({ moduleConfig: config })
+      .where(and(eq(schema.conditions.userId, userId), eq(schema.conditions.key, key)))
+
+    return reply.code(201).send({ ok: true, module: resolveModuleForCondition({ ...row, moduleConfig: config }) })
   })
 
   // ---- Medications -------------------------------------------------------

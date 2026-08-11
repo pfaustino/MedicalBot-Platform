@@ -1,26 +1,20 @@
 import type { ConditionKey, MetricType } from '@medbot/shared'
 import type { ConditionModule, RedFlag, TrackedMetric } from './types.js'
-import { anxiety } from './anxiety.js'
-import { ckd } from './ckd.js'
-import { diabetesT1, diabetesT2 } from './diabetes.js'
-import { schizophrenia } from './schizophrenia.js'
+import { CONDITION_MODULES, getModule } from './registry.js'
 
 export * from './types.js'
-export { anxiety, ckd, diabetesT1, diabetesT2, schizophrenia }
-
-export const CONDITION_MODULES: Partial<Record<ConditionKey, ConditionModule>> = {
-  anxiety,
-  ckd,
-  diabetes_t1: diabetesT1,
-  diabetes_t2: diabetesT2,
-  schizophrenia,
-  // schizoaffective shares the schizophrenia module until it earns its own.
-  schizoaffective: { ...schizophrenia, key: 'schizoaffective', label: 'Schizoaffective Disorder' },
-}
-
-export function getModule(key: ConditionKey): ConditionModule | null {
-  return CONDITION_MODULES[key] ?? null
-}
+export {
+  buildDefaultModuleConfig,
+  moduleFromConfig,
+  resolveModuleForCondition,
+  resolveModulesForConditions,
+} from './dynamic.js'
+export type { ConditionModuleRow } from './dynamic.js'
+export { anxiety } from './anxiety.js'
+export { ckd } from './ckd.js'
+export { diabetesT1, diabetesT2 } from './diabetes.js'
+export { schizophrenia } from './schizophrenia.js'
+export { CONDITION_MODULES, getModule }
 
 export function modulesFor(keys: readonly ConditionKey[]): ConditionModule[] {
   return keys.map(getModule).filter((m): m is ConditionModule => m !== null)

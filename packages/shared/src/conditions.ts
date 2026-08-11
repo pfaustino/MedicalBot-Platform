@@ -1,6 +1,45 @@
 import { z } from 'zod'
+import { METRIC_TYPES } from './metrics.js'
 import { CONDITION_KEYS, CONDITION_LABELS, type ConditionKey } from './profile.js'
 import { ICD_CONDITION_CATALOG } from './reference/icd-conditions.js'
+
+/** Persistable subset of a ConditionModule — stored on conditions.module_config. */
+export const storedTrackedMetricSchema = z.object({
+  type: z.enum(METRIC_TYPES),
+  dailyPrompts: z.number().int().min(0).max(24),
+  targetMin: z.number().nullable(),
+  targetMax: z.number().nullable(),
+  contexts: z.array(z.string()).optional(),
+})
+
+export const storedRedFlagSchema = z.object({
+  id: z.string().min(1).max(80),
+  metric: z.enum(METRIC_TYPES),
+  operator: z.enum(['lt', 'gt']),
+  threshold: z.number(),
+  occurrences: z.number().int().min(1),
+  windowHours: z.number().int().min(1),
+  severity: z.enum(['notice', 'urgent', 'emergency']),
+  message: z.string().min(1).max(500),
+})
+
+export const storedTrendRuleSchema = z.object({
+  id: z.string().min(1).max(80),
+  description: z.string().min(1).max(200),
+  detect: z.string().min(1).max(500),
+})
+
+export const storedModuleConfigSchema = z.object({
+  label: z.string().min(1).max(200).optional(),
+  summary: z.string().min(1).max(1000),
+  metrics: z.array(storedTrackedMetricSchema).min(1).max(20),
+  questionnaireKeys: z.array(z.string()).max(20).optional(),
+  redFlags: z.array(storedRedFlagSchema).max(20).optional(),
+  trends: z.array(storedTrendRuleSchema).max(20).optional(),
+  promptGuidance: z.string().max(4000).optional(),
+})
+
+export type StoredModuleConfig = z.infer<typeof storedModuleConfigSchema>
 
 export interface ConditionSearchResult {
   /** Stable key stored on the user row. */

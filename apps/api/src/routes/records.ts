@@ -3,11 +3,9 @@ import { and, asc, desc, eq, gte } from 'drizzle-orm'
 import { adherenceRate, type AdherenceEvent } from '@medbot/shared'
 import {
   conditionDisplayLabel,
-  inferModuleKey,
   searchConditionCatalog,
-  type ConditionKey,
 } from '@medbot/shared'
-import { getModule, modulesFor } from '@medbot/conditions'
+import { getModule, resolveModuleForCondition } from '@medbot/conditions'
 import { db, schema } from '../db/index.js'
 import {
   fetchOpenRouterModels,
@@ -89,28 +87,18 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
       .where(eq(schema.conditions.userId, userId))
       .orderBy(asc(schema.conditions.key))
 
-    const moduleKeys = rows
-      .map((r) =>
-        inferModuleKey({
-          key: r.key,
-          displayName: r.displayName,
-          icdCode: r.icdCode,
-        }),
-      )
-      .filter((k): k is ConditionKey => k !== null)
-    const modules = modulesFor(moduleKeys)
-
     return reply.send({
       conditions: rows.map((row) => {
-        const resolvedKey = inferModuleKey({
+        const mod = resolveModuleForCondition(row)
+        const label = mod?.label ?? conditionDisplayLabel(row)
+        return {
+          id: row.id,
           key: row.key,
           displayName: row.displayName,
           icdCode: row.icdCode,
-        })
-        const mod = resolvedKey ? modules.find((m) => m.key === resolvedKey) ?? null : null
-        const label = mod?.label ?? conditionDisplayLabel(row)
-        return {
-          ...row,
+          diagnosedAt: row.diagnosedAt,
+          status: row.status,
+          notes: row.notes,
           label,
           summary: mod?.summary ?? null,
           hasModule: Boolean(mod),

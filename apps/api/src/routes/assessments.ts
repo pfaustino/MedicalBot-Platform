@@ -3,11 +3,9 @@ import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import {
   BUILT_IN_QUESTIONNAIRES,
-  inferModuleKey,
   scoreQuestionnaire,
-  type ConditionKey,
 } from '@medbot/shared'
-import { modulesFor, mergedQuestionnaireKeys } from '@medbot/conditions'
+import { resolveModulesForConditions, mergedQuestionnaireKeys } from '@medbot/conditions'
 import { db, schema } from '../db/index.js'
 import { requireUser } from './auth.js'
 
@@ -29,18 +27,13 @@ export async function assessmentRoutes(app: FastifyInstance): Promise<void> {
         key: schema.conditions.key,
         displayName: schema.conditions.displayName,
         icdCode: schema.conditions.icdCode,
+        moduleConfig: schema.conditions.moduleConfig,
       })
       .from(schema.conditions)
       .where(and(eq(schema.conditions.userId, userId), eq(schema.conditions.status, 'active')))
 
     const recommended = new Set(
-      mergedQuestionnaireKeys(
-        modulesFor(
-          conditionRows
-            .map((c) => inferModuleKey(c))
-            .filter((k): k is ConditionKey => k !== null),
-        ),
-      ),
+      mergedQuestionnaireKeys(resolveModulesForConditions(conditionRows)),
     )
 
     return reply.send({

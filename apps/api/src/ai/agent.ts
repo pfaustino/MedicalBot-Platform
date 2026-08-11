@@ -7,11 +7,10 @@ import {
   METRIC_TYPES,
   ageFrom,
   buildPersonaPrompt,
-  inferModuleKey,
   normalizeMetricInput,
   type ConditionKey,
 } from '@medbot/shared'
-import { mergedRedFlags, modulesFor } from '@medbot/conditions'
+import { mergedRedFlags, resolveModulesForConditions } from '@medbot/conditions'
 import { db, schema } from '../db/index.js'
 import { complete, type ChatMessage } from './openrouter.js'
 
@@ -299,12 +298,13 @@ async function checkRedFlags(userId: string, metricType: string, value: number) 
       key: schema.conditions.key,
       displayName: schema.conditions.displayName,
       icdCode: schema.conditions.icdCode,
+      moduleConfig: schema.conditions.moduleConfig,
     })
     .from(schema.conditions)
     .where(and(eq(schema.conditions.userId, userId), eq(schema.conditions.status, 'active')))
-  const flags = mergedRedFlags(
-    modulesFor(rows.map((r) => inferModuleKey(r)).filter((k): k is ConditionKey => k !== null)),
-  ).filter((f) => f.metric === metricType)
+  const flags = mergedRedFlags(resolveModulesForConditions(rows)).filter(
+    (f) => f.metric === metricType,
+  )
   const out: Array<{ severity: string; message: string }> = []
   for (const flag of flags) {
     const breaches = flag.operator === 'lt' ? value < flag.threshold : value > flag.threshold
@@ -322,12 +322,11 @@ async function buildSystemPrompt(userId: string, personaId: string): Promise<str
       key: schema.conditions.key,
       displayName: schema.conditions.displayName,
       icdCode: schema.conditions.icdCode,
+      moduleConfig: schema.conditions.moduleConfig,
     })
     .from(schema.conditions)
     .where(and(eq(schema.conditions.userId, userId), eq(schema.conditions.status, 'active')))
-  const guidance = modulesFor(
-    conditionKeys.map((c) => inferModuleKey(c)).filter((k): k is ConditionKey => k !== null),
-  )
+  const guidance = resolveModulesForConditions(conditionKeys)
     .map((m) => m.promptGuidance)
     .filter(Boolean)
 

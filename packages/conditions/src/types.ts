@@ -1,10 +1,10 @@
-import type { ConditionKey, MetricType } from '@medbot/shared'
+import type { MetricType } from '@medbot/shared'
 
 /**
  * A condition module is the platform's extensibility seam. It declares what a
  * given diagnosis means operationally: what to track, how often to ask, and
- * what counts as concerning. Adding CHF or epilepsy is a new module here, not a
- * change to the core.
+ * what counts as concerning. Built-in modules live as TypeScript files here;
+ * custom diagnoses can store the same shape as JSON on the conditions row.
  */
 
 export interface TrackedMetric {
@@ -39,7 +39,8 @@ export interface TrendRule {
 }
 
 export interface ConditionModule {
-  key: ConditionKey
+  /** Built-in ConditionKey, or the user's condition row key for dynamic modules. */
+  key: string
   label: string
   /** Short line the AI layer gets in its context when the user has this. */
   summary: string

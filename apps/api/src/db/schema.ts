@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core'
+import type { StoredModuleConfig } from '@medbot/shared'
 
 export const users = pgTable(
   'users',
@@ -107,6 +108,11 @@ export const conditions = pgTable(
       onDelete: 'set null',
     }),
     notes: text('notes'),
+    /**
+     * Dynamic tracking module for diagnoses without a code module in
+     * @medbot/conditions. Shape: StoredModuleConfig from @medbot/shared.
+     */
+    moduleConfig: jsonb('module_config').$type<StoredModuleConfig>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('conditions_user_key_idx').on(t.userId, t.key)],

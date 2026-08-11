@@ -122,6 +122,19 @@ function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }
     }
   }
 
+  async function addModule() {
+    if (busy) return
+    setBusy(true)
+    try {
+      await apiPost(`/api/conditions/${encodeURIComponent(c.key)}/module`)
+      toast.show(`Tracking enabled for ${c.label}.`, 'ok')
+      onChanged()
+    } catch {
+      toast.show('Could not add a module for that condition.', 'err')
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="card">
       <div className="card-head">
@@ -132,7 +145,11 @@ function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }
             {c.diagnosedAt && ` · diagnosed ${formatDate(c.diagnosedAt)}`}
           </p>
         </div>
-        {!c.hasModule && <span className="badge badge-warn">No module yet</span>}
+        {!c.hasModule && (
+          <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={addModule}>
+            {busy ? 'Adding…' : 'Add Module'}
+          </button>
+        )}
       </div>
 
       {c.summary && <p>{c.summary}</p>}
@@ -140,8 +157,8 @@ function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }
 
       {!c.hasModule ? (
         <p className="hint">
-          Recorded on your profile, but nothing tracks it automatically yet. Adding a
-          module is one new file in <code>packages/conditions</code>.
+          Recorded on your profile, but nothing tracks it automatically yet. Add a module to
+          start logging symptoms and related metrics for this condition.
         </p>
       ) : (
         <>

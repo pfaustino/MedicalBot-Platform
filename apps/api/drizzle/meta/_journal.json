@@ -64,6 +64,13 @@
       "when": 1784675000000,
       "tag": "0008_password_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784680000000,
+      "tag": "0009_condition_module_config",
+      "breakpoints": true
     }
   ]
 }
