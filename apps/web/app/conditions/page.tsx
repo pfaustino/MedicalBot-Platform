@@ -6,7 +6,7 @@ import { Modal } from '../components/Modal'
 import { useToast } from '../components/Toast'
 import { Loaded } from '../components/Loader'
 import { ConditionPicker, type ConditionSelection } from '../components/ConditionPicker'
-import { apiPost, apiDelete } from '@/lib/api'
+import { apiPost, apiDelete, ApiError, apiErrorMessage } from '@/lib/api'
 import { METRIC_LABELS, formatDate, titleCase } from '@/lib/format'
 import { getConditionReference } from '@medbot/shared'
 import type { ConditionKey } from '@medbot/shared'
@@ -29,6 +29,26 @@ interface Threshold {
   message: string
 }
 
+interface ModuleConfigPreview {
+  summary: string
+  metrics: TrackedMetric[]
+  label?: string
+  promptGuidance?: string
+  questionnaireKeys?: string[]
+  redFlags?: Threshold[]
+  trends?: Array<{ id: string; description: string; detect: string }>
+}
+
+interface ModulePreviewResponse {
+  ok: true
+  preview: true
+  source: 'template' | 'ai'
+  label: string
+  config: ModuleConfigPreview
+  targetRationale: string
+  metricTypes: string[]
+}
+
 interface Condition {
   id: string
   key: string
@@ -38,6 +58,7 @@ interface Condition {
   diagnosedAt: string | null
   notes: string | null
   hasModule: boolean
+  isDynamicModule?: boolean
   trackedMetrics: TrackedMetric[]
   thresholds: Threshold[]
   trends: Array<{ id: string; description: string; detect: string }>
@@ -52,6 +73,10 @@ function describeThreshold(t: Threshold): string {
       ? `${Math.round(t.windowHours / 168)} week(s)`
       : `${Math.round(t.windowHours / 24)} day(s)`
   return `${label} ${dir} ${t.threshold}, ${t.occurrences}× within ${window}`
+}
+
+function metricListLabel(types: string[]): string {
+  return types.map((t) => METRIC_LABELS[t] ?? t).join(', ')
 }
 
 /** Patient-education panel, shown when the glossary has a reference for this key. */
@@ -107,6 +132,8 @@ function ConditionEducation({ conditionKey }: { conditionKey: string }) {
 function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }) {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
+  const [preview, setPreview] = useState<ModulePreviewResponse | null>(null)
+  const [confirming, setConfirming] = useState(false)
 
   async function remove() {
     if (busy) return
@@ -122,16 +149,61 @@ function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }
     }
   }
 
-  async function addModule() {
+  async function clearModule() {
+    if (busy) return
+    if (
+      !window.confirm(
+        `Clear tracking for ${c.label}? The condition stays on your profile; you can Add Module again later.`,
+      )
+    ) {
+      return
+    }
+    setBusy(true)
+    try {
+      await apiDelete(`/api/conditions/${encodeURIComponent(c.key)}/module`)
+      toast.show(`Tracking cleared for ${c.label}.`, 'ok')
+      onChanged()
+    } catch (e) {
+      const msg =
+        e instanceof ApiError ? apiErrorMessage(e.body) : null
+      toast.show(msg ?? 'Could not clear that module.', 'err')
+      setBusy(false)
+    }
+  }
+
+  async function startAddModule() {
     if (busy) return
     setBusy(true)
     try {
-      await apiPost(`/api/conditions/${encodeURIComponent(c.key)}/module`)
+      const res = await apiPost<ModulePreviewResponse>(
+        `/api/conditions/${encodeURIComponent(c.key)}/module`,
+        { action: 'preview' },
+      )
+      setPreview(res)
+      setBusy(false)
+    } catch (e) {
+      const msg = e instanceof ApiError ? apiErrorMessage(e.body) : null
+      toast.show(msg ?? 'Could not propose a module for that condition.', 'err')
+      setBusy(false)
+    }
+  }
+
+  async function confirmModule() {
+    if (!preview || confirming) return
+    setConfirming(true)
+    try {
+      await apiPost(`/api/conditions/${encodeURIComponent(c.key)}/module`, {
+        action: 'confirm',
+        config: preview.config,
+        targetRationale: preview.targetRationale,
+      })
+      setPreview(null)
       toast.show(`Tracking enabled for ${c.label}.`, 'ok')
       onChanged()
-    } catch {
-      toast.show('Could not add a module for that condition.', 'err')
-      setBusy(false)
+    } catch (e) {
+      const msg = e instanceof ApiError ? apiErrorMessage(e.body) : null
+      toast.show(msg ?? 'Could not save that module.', 'err')
+      setConfirming(false)
     }
   }
 
@@ -146,8 +218,8 @@ function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }
           </p>
         </div>
         {!c.hasModule && (
-          <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={addModule}>
-            {busy ? 'Adding…' : 'Add Module'}
+          <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={startAddModule}>
+            {busy ? 'Proposing…' : 'Add Module'}
           </button>
         )}
       </div>
@@ -158,7 +230,7 @@ function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }
       {!c.hasModule ? (
         <p className="hint">
           Recorded on your profile, but nothing tracks it automatically yet. Add a module to
-          start logging symptoms and related metrics for this condition.
+          propose condition-specific metrics (requires OpenRouter for uncommon diagnoses).
         </p>
       ) : (
         <>
@@ -221,10 +293,47 @@ function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }
       <ConditionEducation conditionKey={c.key} />
 
       <div className="btn-row">
+        {c.isDynamicModule && (
+          <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={clearModule}>
+            Clear module
+          </button>
+        )}
         <button type="button" className="btn-danger btn-sm" disabled={busy} onClick={remove}>
           Remove
         </button>
       </div>
+
+      <Modal
+        open={Boolean(preview)}
+        title="Confirm tracking module"
+        onClose={() => {
+          if (!confirming) setPreview(null)
+        }}
+      >
+        {preview && (
+          <div className="stack">
+            <p>
+              We&apos;ll track{' '}
+              <strong>{metricListLabel(preview.metricTypes)}</strong> for {preview.label}.
+            </p>
+            <p className="hint">{preview.targetRationale}</p>
+            {preview.config.summary && <p>{preview.config.summary}</p>}
+            <div className="form-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={confirming}
+                onClick={() => setPreview(null)}
+              >
+                Cancel
+              </button>
+              <button type="button" className="btn-primary" disabled={confirming} onClick={confirmModule}>
+                {confirming ? 'Saving…' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }

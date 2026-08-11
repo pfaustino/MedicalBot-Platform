@@ -5,6 +5,7 @@ import {
   ADHERENCE_STATUSES,
   careTeamMemberSchema,
   conditionCreateSchema,
+  conditionDisplayLabel,
   conditionSchema,
   medicationSchema,
   profileSchema,
@@ -13,12 +14,15 @@ import {
   storedModuleConfigSchema,
 } from '@medbot/shared'
 import {
-  buildDefaultModuleConfig,
+  lookupTemplateModuleConfig,
   resolveModuleForCondition,
 } from '@medbot/conditions'
+import { generateModuleConfig } from '../ai/generate-module-config.js'
+import { openRouterUserMessage } from '../ai/openrouter.js'
 import { db, schema } from '../db/index.js'
 import {
   clearOpenRouterApiKey,
+  isOpenRouterConfigured,
   saveOpenRouterSettings,
 } from '../lib/openrouter-settings.js'
 import { requireUser } from './auth.js'
@@ -184,10 +188,20 @@ export async function manageRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ ok: true })
   })
 
+  const moduleActionSchema = z.discriminatedUnion('action', [
+    z.object({ action: z.literal('preview') }),
+    z.object({
+      action: z.literal('confirm'),
+      config: storedModuleConfigSchema,
+      targetRationale: z.string().max(400).optional(),
+    }),
+  ])
+
   /**
-   * Enable a tracking module for a condition that has none yet.
-   * Code modules already count as active; otherwise persists a default
-   * StoredModuleConfig on the row (dynamic module).
+   * Preview or confirm a dynamic tracking module for a condition without a
+   * code module. Preview never persists. Confirm validates and writes
+   * module_config (overwrites prior dynamic config after successful generation).
+   * Unmatched diagnoses use OpenRouter — no unrelated generic templates.
    */
   app.post('/conditions/:key/module', async (request, reply) => {
     const userId = request.session.userId!
@@ -203,35 +217,132 @@ export async function manageRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ error: 'Condition not found' })
     }
 
-    const existing = resolveModuleForCondition(row)
-    if (existing) {
-      return reply.send({ ok: true, alreadyActive: true })
+    const codeModule = resolveModuleForCondition({ ...row, moduleConfig: null })
+    if (codeModule) {
+      return reply.send({
+        ok: true,
+        alreadyActive: true,
+        source: 'code',
+        module: codeModule,
+      })
     }
 
-    const body = storedModuleConfigSchema.partial().safeParse(request.body ?? {})
-    if (!body.success) {
-      return reply.code(400).send({ error: 'Invalid module config', issues: body.error.issues })
+    const parsed = moduleActionSchema.safeParse(request.body ?? { action: 'preview' })
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Invalid module request', issues: parsed.error.issues })
     }
 
-    const defaults = buildDefaultModuleConfig({
+    const label = conditionDisplayLabel({
       key: row.key,
       displayName: row.displayName,
-      icdCode: row.icdCode,
-    })
-    const config = storedModuleConfigSchema.parse({
-      ...defaults,
-      ...body.data,
-      metrics: body.data.metrics?.length ? body.data.metrics : defaults.metrics,
     })
 
-    // If the row already maps to a built-in code module, nothing to store —
-    // resolveModuleForCondition would have returned it above. Persist dynamic config.
+    if (parsed.data.action === 'preview') {
+      const template = lookupTemplateModuleConfig({
+        key: row.key,
+        displayName: row.displayName,
+        icdCode: row.icdCode,
+        label,
+      })
+
+      if (template) {
+        return reply.send({
+          ok: true,
+          preview: true,
+          source: 'template',
+          label,
+          config: template,
+          targetRationale: template.summary,
+          metricTypes: template.metrics.map((m) => m.type),
+        })
+      }
+
+      if (!(await isOpenRouterConfigured(userId))) {
+        return reply.code(503).send({
+          error:
+            'Add your OpenRouter API key in Settings to generate a tracking module for this condition.',
+          configured: false,
+        })
+      }
+
+      try {
+        const proposal = await generateModuleConfig({
+          userId,
+          key: row.key,
+          displayName: row.displayName,
+          icdCode: row.icdCode,
+        })
+        return reply.send({
+          ok: true,
+          preview: true,
+          source: 'ai',
+          label,
+          config: proposal.config,
+          targetRationale: proposal.targetRationale,
+          metricTypes: proposal.config.metrics.map((m) => m.type),
+        })
+      } catch (err) {
+        request.log.error(
+          { err: err instanceof Error ? err.message : 'unknown' },
+          'Module config generation failed',
+        )
+        const message =
+          openRouterUserMessage(err) ??
+          (err instanceof Error && err.message === 'Model did not return valid JSON'
+            ? 'Could not generate a tracking module for this condition. Try again.'
+            : err instanceof Error &&
+                err.message === 'Model returned a module config that failed validation'
+              ? 'Could not generate a valid tracking module for this condition. Try again.'
+              : 'Could not generate a tracking module for this condition. Try again.')
+        return reply.code(502).send({ error: message })
+      }
+    }
+
+    // confirm — persist only the client-confirmed, re-validated config
+    const config = storedModuleConfigSchema.parse({
+      ...parsed.data.config,
+      label: parsed.data.config.label?.trim() || label,
+    })
+
     await db
       .update(schema.conditions)
       .set({ moduleConfig: config })
       .where(and(eq(schema.conditions.userId, userId), eq(schema.conditions.key, key)))
 
-    return reply.code(201).send({ ok: true, module: resolveModuleForCondition({ ...row, moduleConfig: config }) })
+    return reply.code(201).send({
+      ok: true,
+      module: resolveModuleForCondition({ ...row, moduleConfig: config }),
+    })
+  })
+
+  /** Clear a stored dynamic module_config (does not remove the condition). */
+  app.delete('/conditions/:key/module', async (request, reply) => {
+    const userId = request.session.userId!
+    const { key } = request.params as { key: string }
+
+    const [row] = await db
+      .select()
+      .from(schema.conditions)
+      .where(and(eq(schema.conditions.userId, userId), eq(schema.conditions.key, key)))
+      .limit(1)
+
+    if (!row) {
+      return reply.code(404).send({ error: 'Condition not found' })
+    }
+
+    const codeModule = resolveModuleForCondition({ ...row, moduleConfig: null })
+    if (codeModule) {
+      return reply.code(400).send({
+        error: 'Built-in modules cannot be removed. Remove the condition instead.',
+      })
+    }
+
+    await db
+      .update(schema.conditions)
+      .set({ moduleConfig: null })
+      .where(and(eq(schema.conditions.userId, userId), eq(schema.conditions.key, key)))
+
+    return reply.send({ ok: true })
   })
 
   // ---- Medications -------------------------------------------------------

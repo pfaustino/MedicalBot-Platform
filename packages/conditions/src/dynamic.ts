@@ -150,27 +150,10 @@ function respiratoryDefaults(label: string): StoredModuleConfig {
   }
 }
 
-/** Generic profile for free-text diagnoses (e.g. anosmia) with no built-in module. */
-function genericSymptomDefaults(label: string): StoredModuleConfig {
-  return {
-    summary: `Tracks day-to-day symptom severity and mood for ${label}.`,
-    metrics: [
-      metric('symptom_severity', 1, 0, 3),
-      metric('mood', 1, 4, 10),
-    ],
-    questionnaireKeys: [],
-    redFlags: [],
-    trends: [
-      {
-        id: 'rising_symptoms',
-        description: 'Symptom severity climbing',
-        detect: 'Average symptom_severity over 7 days higher than the prior 7 days by 2+ points.',
-      },
-    ],
-    promptGuidance: `The user is tracking ${label}. Help them log symptom severity and mood with any context they offer. Do not diagnose or prescribe. Help prepare questions for their clinician from their own data.`,
-  }
-}
-
+/**
+ * Condition-specific templates for known enum keys that lack a code module.
+ * Never used as a catch-all for unmatched diagnoses (e.g. anosmia).
+ */
 const TEMPLATES_BY_KEY: Partial<Record<ConditionKey, (label: string) => StoredModuleConfig>> = {
   depression: mentalHealthDefaults,
   bipolar: mentalHealthDefaults,
@@ -181,21 +164,19 @@ const TEMPLATES_BY_KEY: Partial<Record<ConditionKey, (label: string) => StoredMo
   chronic_pain: painDefaults,
   asthma: respiratoryDefaults,
   copd: respiratoryDefaults,
-  thyroid: genericSymptomDefaults,
-  epilepsy: genericSymptomDefaults,
 }
 
 /**
- * Sensible default tracking profile when the user enables a dynamic module.
- * Prefers a template for known enum keys that lack a code module; otherwise a
- * generic symptom + mood profile (covers cases like anosmia).
+ * Look up a condition-specific template when the row maps to a known key that
+ * has no code module. Returns null when no honest template exists — callers
+ * must generate via AI or refuse, never invent unrelated tracking.
  */
-export function buildDefaultModuleConfig(input: {
+export function lookupTemplateModuleConfig(input: {
   key: string
   displayName?: string | null
   icdCode?: string | null
   label?: string
-}): StoredModuleConfig {
+}): StoredModuleConfig | null {
   const label =
     input.label?.trim() ||
     conditionDisplayLabel({ key: input.key, displayName: input.displayName })
@@ -206,7 +187,23 @@ export function buildDefaultModuleConfig(input: {
       icdCode: input.icdCode,
     }) ?? null
   const template = inferred ? TEMPLATES_BY_KEY[inferred] : undefined
-  return template ? template(label) : genericSymptomDefaults(label)
+  return template ? template(label) : null
+}
+
+/** @deprecated Prefer lookupTemplateModuleConfig — no generic catch-all. */
+export function buildDefaultModuleConfig(input: {
+  key: string
+  displayName?: string | null
+  icdCode?: string | null
+  label?: string
+}): StoredModuleConfig {
+  const found = lookupTemplateModuleConfig(input)
+  if (!found) {
+    throw new Error(
+      'No condition-specific template for this diagnosis. Generate via AI or refuse.',
+    )
+  }
+  return found
 }
 
 export function moduleFromConfig(

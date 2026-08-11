@@ -5,6 +5,7 @@ import { CONDITION_MODULES, getModule } from './registry.js'
 export * from './types.js'
 export {
   buildDefaultModuleConfig,
+  lookupTemplateModuleConfig,
   moduleFromConfig,
   resolveModuleForCondition,
   resolveModulesForConditions,

@@ -89,6 +89,7 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
 
     return reply.send({
       conditions: rows.map((row) => {
+        const codeModule = resolveModuleForCondition({ ...row, moduleConfig: null })
         const mod = resolveModuleForCondition(row)
         const label = mod?.label ?? conditionDisplayLabel(row)
         return {
@@ -102,6 +103,8 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
           label,
           summary: mod?.summary ?? null,
           hasModule: Boolean(mod),
+          /** True when tracking comes from stored module_config (can be cleared). */
+          isDynamicModule: Boolean(row.moduleConfig) && !codeModule,
           trackedMetrics: mod?.metrics ?? [],
           thresholds: mod?.redFlags ?? [],
           trends: mod?.trends ?? [],
