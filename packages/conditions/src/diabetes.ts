@@ -101,3 +101,30 @@ capture meal context — a 180 fasting and a 180 two hours after eating mean ver
 things. Never suggest an insulin dose or a change to any diabetes medication. You may point \
 out patterns in their own data and help them prepare questions for their endocrinologist.`,
 }
+
+/**
+ * Type 1 diabetes. Same core metrics as T2 (glucose with meal context, A1C, weight,
+ * BP) but the guidance assumes insulin dependence — still never dose-advise.
+ */
+export const diabetesT1: ConditionModule = {
+  key: 'diabetes_t1',
+  label: 'Type 1 Diabetes',
+  summary:
+    'Tracks blood glucose with meal context, weight, and A1C. Watches for hypo/hyper events; assumes insulin therapy without suggesting doses.',
+  metrics: diabetesT2.metrics,
+  questionnaireKeys: ['diabetes_distress', 'med_adherence'],
+  redFlags: diabetesT2.redFlags,
+  trends: [
+    ...diabetesT2.trends,
+    {
+      id: 'insulin_timing',
+      description: 'Timing gaps around insulin and meals',
+      detect:
+        'Post-meal spikes or lows that cluster when meal context and logged insulin timing are far apart (user-reported only).',
+    },
+  ],
+  promptGuidance: `The user has type 1 diabetes and uses insulin. When they report a glucose \
+reading, always capture meal context. Never suggest an insulin dose, correction factor, or \
+carb ratio change — those come only from their care team. You may point out patterns in \
+their own data and help them prepare questions for their endocrinologist.`,
+}

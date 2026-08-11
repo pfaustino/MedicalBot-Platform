@@ -2,8 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import { and, asc, desc, eq, gte } from 'drizzle-orm'
 import { adherenceRate, type AdherenceEvent } from '@medbot/shared'
 import {
-  CONDITION_KEYS,
   conditionDisplayLabel,
+  inferModuleKey,
   searchConditionCatalog,
   type ConditionKey,
 } from '@medbot/shared'
@@ -90,13 +90,24 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
       .orderBy(asc(schema.conditions.key))
 
     const moduleKeys = rows
-      .map((r) => r.key)
-      .filter((k): k is ConditionKey => CONDITION_KEYS.includes(k as ConditionKey))
+      .map((r) =>
+        inferModuleKey({
+          key: r.key,
+          displayName: r.displayName,
+          icdCode: r.icdCode,
+        }),
+      )
+      .filter((k): k is ConditionKey => k !== null)
     const modules = modulesFor(moduleKeys)
 
     return reply.send({
       conditions: rows.map((row) => {
-        const mod = modules.find((m) => m.key === row.key)
+        const resolvedKey = inferModuleKey({
+          key: row.key,
+          displayName: row.displayName,
+          icdCode: row.icdCode,
+        })
+        const mod = resolvedKey ? modules.find((m) => m.key === resolvedKey) ?? null : null
         const label = mod?.label ?? conditionDisplayLabel(row)
         return {
           ...row,

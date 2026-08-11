@@ -1,12 +1,17 @@
 import type { ConditionKey, MetricType } from '@medbot/shared'
 import type { ConditionModule, RedFlag, TrackedMetric } from './types.js'
-import { diabetesT2 } from './diabetes.js'
+import { anxiety } from './anxiety.js'
+import { ckd } from './ckd.js'
+import { diabetesT1, diabetesT2 } from './diabetes.js'
 import { schizophrenia } from './schizophrenia.js'
 
 export * from './types.js'
-export { diabetesT2, schizophrenia }
+export { anxiety, ckd, diabetesT1, diabetesT2, schizophrenia }
 
 export const CONDITION_MODULES: Partial<Record<ConditionKey, ConditionModule>> = {
+  anxiety,
+  ckd,
+  diabetes_t1: diabetesT1,
   diabetes_t2: diabetesT2,
   schizophrenia,
   // schizoaffective shares the schizophrenia module until it earns its own.

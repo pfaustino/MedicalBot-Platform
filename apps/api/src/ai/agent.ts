@@ -7,6 +7,7 @@ import {
   METRIC_TYPES,
   ageFrom,
   buildPersonaPrompt,
+  inferModuleKey,
   normalizeMetricInput,
   type ConditionKey,
 } from '@medbot/shared'
@@ -294,10 +295,16 @@ async function profileSummary(userId: string) {
 /** Occurrence-aware red-flag check, mirroring the metrics route. */
 async function checkRedFlags(userId: string, metricType: string, value: number) {
   const rows = await db
-    .select({ key: schema.conditions.key })
+    .select({
+      key: schema.conditions.key,
+      displayName: schema.conditions.displayName,
+      icdCode: schema.conditions.icdCode,
+    })
     .from(schema.conditions)
     .where(and(eq(schema.conditions.userId, userId), eq(schema.conditions.status, 'active')))
-  const flags = mergedRedFlags(modulesFor(rows.map((r) => r.key as ConditionKey))).filter((f) => f.metric === metricType)
+  const flags = mergedRedFlags(
+    modulesFor(rows.map((r) => inferModuleKey(r)).filter((k): k is ConditionKey => k !== null)),
+  ).filter((f) => f.metric === metricType)
   const out: Array<{ severity: string; message: string }> = []
   for (const flag of flags) {
     const breaches = flag.operator === 'lt' ? value < flag.threshold : value > flag.threshold
@@ -311,10 +318,16 @@ async function checkRedFlags(userId: string, metricType: string, value: number) 
 async function buildSystemPrompt(userId: string, personaId: string): Promise<string> {
   const summary = await profileSummary(userId)
   const conditionKeys = await db
-    .select({ key: schema.conditions.key })
+    .select({
+      key: schema.conditions.key,
+      displayName: schema.conditions.displayName,
+      icdCode: schema.conditions.icdCode,
+    })
     .from(schema.conditions)
     .where(and(eq(schema.conditions.userId, userId), eq(schema.conditions.status, 'active')))
-  const guidance = modulesFor(conditionKeys.map((c) => c.key as ConditionKey))
+  const guidance = modulesFor(
+    conditionKeys.map((c) => inferModuleKey(c)).filter((k): k is ConditionKey => k !== null),
+  )
     .map((m) => m.promptGuidance)
     .filter(Boolean)
 

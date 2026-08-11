@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import {
   BUILT_IN_QUESTIONNAIRES,
+  inferModuleKey,
   scoreQuestionnaire,
   type ConditionKey,
 } from '@medbot/shared'
@@ -24,12 +25,22 @@ export async function assessmentRoutes(app: FastifyInstance): Promise<void> {
   app.get('/assessments/catalog', async (request, reply) => {
     const userId = request.session.userId!
     const conditionRows = await db
-      .select({ key: schema.conditions.key })
+      .select({
+        key: schema.conditions.key,
+        displayName: schema.conditions.displayName,
+        icdCode: schema.conditions.icdCode,
+      })
       .from(schema.conditions)
       .where(and(eq(schema.conditions.userId, userId), eq(schema.conditions.status, 'active')))
 
     const recommended = new Set(
-      mergedQuestionnaireKeys(modulesFor(conditionRows.map((c) => c.key as ConditionKey))),
+      mergedQuestionnaireKeys(
+        modulesFor(
+          conditionRows
+            .map((c) => inferModuleKey(c))
+            .filter((k): k is ConditionKey => k !== null),
+        ),
+      ),
     )
 
     return reply.send({

@@ -25,14 +25,84 @@ export function normalizeIcdCode(code: string): string {
   return code.trim().toUpperCase().replace(/\s+/g, '')
 }
 
+/**
+ * ICD prefixes that map to a built-in module key. Used when a free-text or
+ * imported diagnosis carries a code but no explicit moduleKey.
+ */
+const ICD_MODULE_PREFIXES: Array<{ prefix: string; key: ConditionKey }> = [
+  { prefix: 'E10', key: 'diabetes_t1' },
+  { prefix: 'E11', key: 'diabetes_t2' },
+  { prefix: 'R7303', key: 'prediabetes' },
+  { prefix: 'N18', key: 'ckd' },
+  { prefix: 'F41', key: 'anxiety' },
+  { prefix: 'F32', key: 'depression' },
+  { prefix: 'F33', key: 'depression' },
+  { prefix: 'I10', key: 'hypertension' },
+  { prefix: 'J44', key: 'copd' },
+  { prefix: 'J45', key: 'asthma' },
+]
+
+/**
+ * Resolve which condition module (if any) a stored row or create payload should
+ * use. Matching order: explicit moduleKey → enum key → ICD prefix → label /
+ * slug name match. Custom keys like `custom:anxiety` still resolve to `anxiety`
+ * when the display name matches.
+ */
+export function inferModuleKey(input: {
+  key?: string | null
+  name?: string | null
+  displayName?: string | null
+  moduleKey?: string | null
+  icdCode?: string | null
+}): ConditionKey | null {
+  if (input.moduleKey && CONDITION_KEYS.includes(input.moduleKey as ConditionKey)) {
+    return input.moduleKey as ConditionKey
+  }
+  if (input.key && CONDITION_KEYS.includes(input.key as ConditionKey)) {
+    return input.key as ConditionKey
+  }
+
+  const code = input.icdCode?.trim()
+    ? normalizeIcdCode(input.icdCode).replace(/\./g, '')
+    : input.key?.startsWith('icd:')
+      ? input.key.slice(4).toUpperCase()
+      : null
+  if (code) {
+    for (const { prefix, key } of ICD_MODULE_PREFIXES) {
+      if (code.startsWith(prefix)) return key
+    }
+  }
+
+  const rawName = (input.displayName ?? input.name ?? '').trim().toLowerCase()
+  const slug =
+    input.key?.startsWith('custom:') ? input.key.slice(7) : rawName ? slugify(rawName) : ''
+  const candidates = [rawName, slug.replace(/-/g, ' '), slug].filter(Boolean)
+
+  for (const key of CONDITION_KEYS) {
+    const label = CONDITION_LABELS[key].toLowerCase()
+    const keyWords = key.replace(/_/g, ' ')
+    for (const c of candidates) {
+      if (!c) continue
+      if (c === key || c === label || slugify(c) === key || slugify(c) === slugify(label)) {
+        return key
+      }
+      // Name contains the full label or key phrase ("Chronic kidney disease, stage 4" → ckd)
+      if (c.includes(label) || c.includes(keyWords)) {
+        return key
+      }
+    }
+  }
+
+  return null
+}
+
 export function buildConditionKey(input: {
   name: string
   moduleKey?: string | null
   icdCode?: string | null
 }): string {
-  if (input.moduleKey && CONDITION_KEYS.includes(input.moduleKey as ConditionKey)) {
-    return input.moduleKey
-  }
+  const inferred = inferModuleKey(input)
+  if (inferred) return inferred
   if (input.icdCode?.trim()) {
     return `icd:${normalizeIcdCode(input.icdCode).replace(/\./g, '')}`
   }
@@ -68,11 +138,12 @@ export function searchConditionCatalog(query: string, limit = 20): ConditionSear
     const code = normalizeIcdCode(entry.code)
     const hay = `${entry.name} ${code}`.toLowerCase()
     if (!q || hay.includes(q)) {
+      const moduleKey = inferModuleKey({ name: entry.name, icdCode: code })
       add({
-        key: buildConditionKey({ name: entry.name, icdCode: code }),
+        key: buildConditionKey({ name: entry.name, moduleKey, icdCode: code }),
         name: entry.name,
         icdCode: entry.code,
-        moduleKey: null,
+        moduleKey,
         hasModule: false,
         source: 'icd',
       })
@@ -80,13 +151,14 @@ export function searchConditionCatalog(query: string, limit = 20): ConditionSear
   }
 
   if (q.length >= 2) {
+    const moduleKey = inferModuleKey({ name: query.trim() })
     add({
-      key: buildConditionKey({ name: query.trim() }),
+      key: buildConditionKey({ name: query.trim(), moduleKey }),
       name: query.trim(),
       icdCode: null,
-      moduleKey: null,
+      moduleKey,
       hasModule: false,
-      source: 'custom',
+      source: moduleKey ? 'module' : 'custom',
     })
   }
 
@@ -107,14 +179,19 @@ export const conditionCreateSchema = z.object({
 export type ConditionCreateInput = z.infer<typeof conditionCreateSchema>
 
 export function resolveConditionCreate(input: ConditionCreateInput) {
-  const key = buildConditionKey({
+  const moduleKey = inferModuleKey({
     name: input.name,
     moduleKey: input.moduleKey,
     icdCode: input.icdCode,
   })
+  const key = buildConditionKey({
+    name: input.name,
+    moduleKey: moduleKey ?? input.moduleKey,
+    icdCode: input.icdCode,
+  })
   const displayName =
-    input.moduleKey && CONDITION_LABELS[input.moduleKey]
-      ? CONDITION_LABELS[input.moduleKey]
+    moduleKey && CONDITION_LABELS[moduleKey]
+      ? CONDITION_LABELS[moduleKey]
       : input.name.trim()
   return {
     key,

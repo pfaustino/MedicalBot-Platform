@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { and, desc, eq, gte } from 'drizzle-orm'
-import { adherenceRate, type AdherenceEvent, type ConditionKey } from '@medbot/shared'
+import { adherenceRate, inferModuleKey, type AdherenceEvent, type ConditionKey } from '@medbot/shared'
 import { mergedMetrics, modulesFor } from '@medbot/conditions'
 import { db, schema } from '../db/index.js'
 import { requireUser } from './auth.js'
@@ -25,11 +25,19 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       .limit(1)
 
     const conditionRows = await db
-      .select({ key: schema.conditions.key })
+      .select({
+        key: schema.conditions.key,
+        displayName: schema.conditions.displayName,
+        icdCode: schema.conditions.icdCode,
+      })
       .from(schema.conditions)
       .where(and(eq(schema.conditions.userId, userId), eq(schema.conditions.status, 'active')))
 
-    const modules = modulesFor(conditionRows.map((c) => c.key as ConditionKey))
+    const modules = modulesFor(
+      conditionRows
+        .map((c) => inferModuleKey(c))
+        .filter((k): k is ConditionKey => k !== null),
+    )
     const tracked = mergedMetrics(modules)
 
     const recent = await db

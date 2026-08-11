@@ -1,9 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import { and, count, desc, eq, gte, max } from 'drizzle-orm'
 import { z } from 'zod'
-import { METRIC_TYPES, normalizeMetricInput } from '@medbot/shared'
+import { METRIC_TYPES, normalizeMetricInput, inferModuleKey, type ConditionKey } from '@medbot/shared'
 import { modulesFor, mergedRedFlags } from '@medbot/conditions'
-import type { ConditionKey } from '@medbot/shared'
 import { db, schema } from '../db/index.js'
 import { requireUser } from './auth.js'
 
@@ -157,11 +156,19 @@ async function checkRedFlags(
   value: number,
 ): Promise<Array<{ id: string; severity: string; message: string }>> {
   const userConditions = await db
-    .select({ key: schema.conditions.key })
+    .select({
+      key: schema.conditions.key,
+      displayName: schema.conditions.displayName,
+      icdCode: schema.conditions.icdCode,
+    })
     .from(schema.conditions)
     .where(and(eq(schema.conditions.userId, userId), eq(schema.conditions.status, 'active')))
 
-  const modules = modulesFor(userConditions.map((c) => c.key as ConditionKey))
+  const modules = modulesFor(
+    userConditions
+      .map((c) => inferModuleKey(c))
+      .filter((k): k is ConditionKey => k !== null),
+  )
   const flags = mergedRedFlags(modules).filter((f) => f.metric === metricType)
   if (flags.length === 0) return []
 
