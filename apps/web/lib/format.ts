@@ -47,11 +47,28 @@ export function formatMetric(
   return String(value)
 }
 
+/**
+ * PG `date` columns (dateOfBirth, diagnosedAt, startedAt, …) arrive either as
+ * `YYYY-MM-DD` or as a midnight-UTC ISO timestamp. Both represent a calendar
+ * day, not a moment — format them pinned to UTC so local time can't roll the
+ * day back.
+ */
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}(?:T00:00:00(?:\.0+)?(?:Z|\+00:?00))?$/
+
+function parseDateValue(value: string | Date): Date {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return new Date(`${value}T00:00:00Z`)
+  }
+  return new Date(value)
+}
+
 export function formatDate(value: string | Date): string {
-  return new Date(value).toLocaleDateString(undefined, {
+  const isDateOnly = typeof value === 'string' && DATE_ONLY_RE.test(value)
+  return parseDateValue(value).toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
+    ...(isDateOnly ? { timeZone: 'UTC' } : {}),
   })
 }
 
@@ -138,6 +155,8 @@ export const METRIC_UNITS: Record<string, string> = {
 /** Round-trips a stored ISO date into the value an <input type="date"> wants. */
 export function toDateInput(value: string | Date | null): string {
   if (!value) return ''
+  // Date-only values keep their calendar day regardless of local timezone.
+  if (typeof value === 'string' && DATE_ONLY_RE.test(value)) return value.slice(0, 10)
   const d = new Date(value)
   if (Number.isNaN(+d)) return ''
   return d.toISOString().slice(0, 10)
