@@ -1330,6 +1330,35 @@ main.assistant-page {
   font-size: 0.8rem;
 }
 
+.calendar-day {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 0.95rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.calendar-filters .chip.active {
+  border-color: var(--accent);
+  background: var(--accent-weak);
+  color: var(--fg);
+}
+
+.calendar-google-card {
+  margin-bottom: 1rem;
+}
+
+.pill.kind-appointment {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+}
+
+.pill.kind-todo {
+  border-color: color-mix(in srgb, #e6a23c 50%, var(--border));
+}
+
+.pill.kind-google {
+  border-color: color-mix(in srgb, #5b8def 50%, var(--border));
+}
+
 .build-footer {
   text-align: center;
   padding: 0.35rem 1rem 0.6rem;

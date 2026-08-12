@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { TERMS_VERSION } from '@medbot/shared'
 import { config, googleConfigured } from '../config.js'
 import { db, schema } from '../db/index.js'
-import { encrypt } from '../lib/crypto.js'
+import { upsertGoogleAccount } from '../lib/google.js'
 import { hashPassword, verifyPassword } from '../lib/password.js'
 import { rateLimit } from '../lib/rate-limit.js'
 
@@ -44,6 +44,8 @@ declare module 'fastify' {
   interface Session {
     userId?: string
     oauthState?: string
+    /** Set when starting an incremental connect (e.g. calendar). */
+    oauthConnect?: 'calendar'
   }
 }
 
@@ -55,6 +57,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
     const state = randomBytes(16).toString('hex')
     request.session.oauthState = state
+    request.session.oauthConnect = undefined
 
     const params = new URLSearchParams({
       client_id: config.GOOGLE_CLIENT_ID!,
@@ -69,10 +72,47 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return reply.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`)
   })
 
-  app.get<{ Querystring: { code?: string; state?: string } }>(
+  /**
+   * Incremental OAuth — request Calendar (or later Drive/Gmail) after the user
+   * is already signed in. SPEC.md §6: don't ask for Workspace scopes at signup.
+   */
+  app.get('/auth/google/connect/calendar', async (request, reply) => {
+    if (!googleConfigured) {
+      return reply.redirect(`${config.APP_URL}/calendar?google=unconfigured`)
+    }
+    if (!request.session.userId) {
+      return reply.redirect(`${config.APP_URL}/?signin=required`)
+    }
+
+    const state = randomBytes(16).toString('hex')
+    request.session.oauthState = state
+    request.session.oauthConnect = 'calendar'
+
+    const params = new URLSearchParams({
+      client_id: config.GOOGLE_CLIENT_ID!,
+      redirect_uri: config.GOOGLE_REDIRECT_URI!,
+      response_type: 'code',
+      scope: INCREMENTAL_SCOPES.calendar.join(' '),
+      access_type: 'offline',
+      prompt: 'consent',
+      include_granted_scopes: 'true',
+      state,
+    })
+
+    return reply.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`)
+  })
+
+  app.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
     '/auth/google/callback',
     async (request, reply) => {
-      const { code, state } = request.query
+      const { code, state, error: oauthError } = request.query
+      const connect = request.session.oauthConnect
+      request.session.oauthConnect = undefined
+
+      if (oauthError) {
+        const dest = connect === 'calendar' ? '/calendar?google=denied' : '/?signin=denied'
+        return reply.redirect(`${config.APP_URL}${dest}`)
+      }
 
       if (!code || !state || state !== request.session.oauthState) {
         return reply.code(400).send({ error: 'Invalid OAuth callback' })
@@ -101,6 +141,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         refresh_token?: string
         expires_in: number
         scope: string
+      }
+
+      // Incremental connect: attach scopes to the already-signed-in user.
+      if (connect === 'calendar' && request.session.userId) {
+        await upsertGoogleAccount(request.session.userId, tokens)
+        return reply.redirect(`${config.APP_URL}/calendar?google=connected`)
       }
 
       const profileResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
@@ -324,27 +370,9 @@ async function upsertUser(
       .values({ userId, displayName: profile.name ?? profile.email })
       .onConflictDoNothing()
 
-    await tx
-      .insert(schema.googleAccounts)
-      .values({
-        userId,
-        accessToken: tokens.access_token,
-        // Google only returns a refresh token on first consent; keep the stored
-        // one when this exchange did not include a new one.
-        refreshTokenEncrypted: tokens.refresh_token ? encrypt(tokens.refresh_token) : null,
-        expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
-        scopes: tokens.scope.split(' '),
-      })
-      .onConflictDoUpdate({
-        target: schema.googleAccounts.userId,
-        set: {
-          accessToken: tokens.access_token,
-          expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
-          scopes: tokens.scope.split(' '),
-          updatedAt: new Date(),
-        },
-      })
-
+    return userId
+  }).then(async (userId) => {
+    await upsertGoogleAccount(userId, tokens)
     return userId
   })
 }

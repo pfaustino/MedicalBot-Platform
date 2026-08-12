@@ -49,9 +49,9 @@ function steps(isAdmin: boolean): Step[] {
       body: 'See what you’re managing, what each condition tracks, and plain-language explanations to bring to your doctor.',
     },
     {
-      anchor: 'nav-appointments',
-      title: 'Appointments',
-      body: 'Keep upcoming visits, prep notes, and post-visit notes in one place.',
+      anchor: 'nav-calendar',
+      title: 'Calendar',
+      body: 'Appointments, dated To Dos, and Google Calendar events in one place — with optional sync to your phone.',
     },
     {
       anchor: 'nav-records',

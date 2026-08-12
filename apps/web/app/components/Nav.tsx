@@ -16,7 +16,7 @@ const LINKS = [
   { href: '/medications', label: 'Medications', tour: 'nav-medications' },
   { href: '/assessments', label: 'Assessments', tour: 'nav-assessments' },
   { href: '/conditions', label: 'Conditions', tour: 'nav-conditions' },
-  { href: '/appointments', label: 'Appointments', tour: 'nav-appointments' },
+  { href: '/calendar', label: 'Calendar', tour: 'nav-calendar' },
   { href: '/todos', label: 'To Dos', tour: 'nav-todos' },
   { href: '/records', label: 'Records', tour: 'nav-records' },
   { href: '/import', label: 'Import', tour: 'nav-import' },

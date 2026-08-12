@@ -10,6 +10,7 @@ import { config, isProduction, googleConfigured, openRouterConfigured } from './
 import { closeDb, pingDb, runMigrations, usingPglite } from './db/index.js'
 import { bootstrapAdmin } from './lib/bootstrap-admin.js'
 import { authRoutes } from './routes/auth.js'
+import { calendarRoutes } from './routes/calendar.js'
 import { dashboardRoutes } from './routes/dashboard.js'
 import { demoRoutes } from './routes/demo.js'
 import { legalRoutes } from './routes/legal.js'
@@ -102,6 +103,7 @@ await app.register(legalRoutes)
 await app.register(demoRoutes)
 await app.register(dashboardRoutes, { prefix: '/api' })
 await app.register(recordRoutes, { prefix: '/api' })
+await app.register(calendarRoutes, { prefix: '/api' })
 await app.register(metricRoutes, { prefix: '/api' })
 await app.register(onboardingRoutes, { prefix: '/api' })
 await app.register(manageRoutes, { prefix: '/api' })

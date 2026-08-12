@@ -22,6 +22,7 @@ import {
 import { generateModuleConfig } from '../ai/generate-module-config.js'
 import { OpenRouterError, openRouterUserMessage } from '../ai/openrouter.js'
 import { db, schema } from '../db/index.js'
+import { createGoogleCalendarEvent } from '../lib/google.js'
 import {
   clearOpenRouterApiKey,
   isOpenRouterConfigured,
@@ -472,6 +473,19 @@ export async function manageRoutes(app: FastifyInstance): Promise<void> {
     }
     const userId = request.session.userId!
     const a = parsed.data
+    let googleEventId: string | null = null
+    try {
+      googleEventId = await createGoogleCalendarEvent(userId, {
+        title: a.title,
+        startsAt: a.startsAt,
+        endsAt: a.endsAt,
+        location: a.location,
+        description: a.prepNotes,
+      })
+    } catch (err) {
+      request.log.warn({ err }, 'Could not sync appointment to Google Calendar')
+    }
+
     const [row] = await db
       .insert(schema.appointments)
       .values({
@@ -483,9 +497,10 @@ export async function manageRoutes(app: FastifyInstance): Promise<void> {
         location: a.location,
         providerId: a.providerId,
         prepNotes: a.prepNotes,
+        googleEventId,
       })
-      .returning({ id: schema.appointments.id })
-    return reply.code(201).send({ id: row!.id })
+      .returning({ id: schema.appointments.id, googleEventId: schema.appointments.googleEventId })
+    return reply.code(201).send({ id: row!.id, synced: Boolean(row!.googleEventId) })
   })
 
   const appointmentPatch = z.object({
