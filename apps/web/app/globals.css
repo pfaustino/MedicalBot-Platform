@@ -1175,7 +1175,7 @@ textarea.field-error-input {
 
 .combobox-list {
   position: absolute;
-  z-index: 20;
+  z-index: 40;
   top: calc(100% + 0.25rem);
   left: 0;
   right: 0;
@@ -1184,10 +1184,10 @@ textarea.field-error-input {
   margin: 0;
   padding: 0.25rem 0;
   list-style: none;
-  background: var(--card);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 0.375rem;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 
 .combobox-option {
@@ -1200,7 +1200,7 @@ textarea.field-error-input {
 
 .combobox-option:hover,
 .combobox-option.active {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
 }
 
 .combobox-option-label {
