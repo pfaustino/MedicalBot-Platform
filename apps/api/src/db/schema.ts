@@ -369,3 +369,14 @@ export const googleAccounts = pgTable('google_accounts', {
   scopes: jsonb('scopes').$type<string[]>().notNull().default([]),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+/** Cookie session persistence — survives API redeploys (unlike in-memory store). */
+export const sessions = pgTable(
+  'sessions',
+  {
+    sid: text('sid').primaryKey(),
+    sess: jsonb('sess').$type<Record<string, unknown>>().notNull(),
+    expire: timestamp('expire', { withTimezone: true }).notNull(),
+  },
+  (t) => [index('sessions_expire_idx').on(t.expire)],
+)

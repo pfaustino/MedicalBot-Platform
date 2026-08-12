@@ -9,6 +9,7 @@ import Fastify from 'fastify'
 import { config, isProduction, googleConfigured, openRouterConfigured } from './config.js'
 import { closeDb, pingDb, runMigrations, usingPglite } from './db/index.js'
 import { bootstrapAdmin } from './lib/bootstrap-admin.js'
+import { PgSessionStore } from './lib/session-store.js'
 import { authRoutes } from './routes/auth.js'
 import { calendarRoutes } from './routes/calendar.js'
 import { dashboardRoutes } from './routes/dashboard.js'
@@ -54,6 +55,7 @@ await app.register(cors, {
 await app.register(cookie)
 await app.register(session, {
   secret: config.SESSION_SECRET,
+  store: new PgSessionStore(),
   cookieName: 'medbot_session',
   cookie: {
     secure: isProduction,

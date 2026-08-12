@@ -65,7 +65,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       response_type: 'code',
       scope: LOGIN_SCOPES.join(' '),
       access_type: 'offline',
-      prompt: 'consent',
+      prompt: 'select_account',
       state,
     })
 

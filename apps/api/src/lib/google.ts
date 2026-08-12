@@ -352,6 +352,17 @@ export async function deleteGoogleCalendarEvent(userId: string, eventId: string)
   }
 }
 
+function googleApiScopes(scopes: string[]): string[] {
+  return scopes.filter((s) => s.includes('googleapis.com'))
+}
+
+/** True when every existing googleapis.com scope is still present on the incoming grant. */
+function preservesGoogleApiScopes(existing: string[], incoming: string[]): boolean {
+  const ex = googleApiScopes(existing)
+  const inc = googleApiScopes(incoming)
+  return ex.every((s) => inc.includes(s))
+}
+
 /** Persist tokens after an OAuth exchange (login or incremental connect). */
 export async function upsertGoogleAccount(
   userId: string,
@@ -366,10 +377,16 @@ export async function upsertGoogleAccount(
     .where(eq(schema.googleAccounts.userId, userId))
     .limit(1)
 
+  const incomingScopes = mergeScopes(tokens.scope)
   const scopes = mergeScopes(existing?.scopes, tokens.scope)
+  const preserves =
+    !existing || preservesGoogleApiScopes(existing.scopes ?? [], incomingScopes)
+  const expiresAt = new Date(Date.now() + tokens.expires_in * 1000)
   const refreshTokenEncrypted = tokens.refresh_token
     ? encrypt(tokens.refresh_token)
     : (existing?.refreshTokenEncrypted ?? null)
+  const shouldUpdateRefresh =
+    Boolean(tokens.refresh_token) && (!existing?.refreshTokenEncrypted || preserves)
 
   await db
     .insert(schema.googleAccounts)
@@ -377,17 +394,16 @@ export async function upsertGoogleAccount(
       userId,
       accessToken: tokens.access_token,
       refreshTokenEncrypted,
-      expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
+      expiresAt,
       scopes,
     })
     .onConflictDoUpdate({
       target: schema.googleAccounts.userId,
       set: {
-        accessToken: tokens.access_token,
-        expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
         scopes,
-        ...(tokens.refresh_token ? { refreshTokenEncrypted: encrypt(tokens.refresh_token) } : {}),
         updatedAt: new Date(),
+        ...(preserves ? { accessToken: tokens.access_token, expiresAt } : {}),
+        ...(shouldUpdateRefresh ? { refreshTokenEncrypted: encrypt(tokens.refresh_token!) } : {}),
       },
     })
 }

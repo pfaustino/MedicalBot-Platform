@@ -78,6 +78,13 @@
       "when": 1784685000000,
       "tag": "0010_todos",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784690000000,
+      "tag": "0011_sessions",
+      "breakpoints": true
     }
   ]
 }
