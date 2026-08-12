@@ -85,13 +85,22 @@ export async function calendarRoutes(app: FastifyInstance): Promise<void> {
     const items: CalendarItem[] = []
 
     for (const a of appointments) {
+      const start = a.startsAt
+      const end = a.endsAt
+      const looksAllDay =
+        start.getHours() === 0 &&
+        start.getMinutes() === 0 &&
+        (!end ||
+          (end.getHours() === 0 &&
+            end.getMinutes() === 0 &&
+            end.getTime() - start.getTime() >= 20 * 60 * 60 * 1000))
       items.push({
         id: a.id,
         kind: 'appointment',
         title: a.title,
         startsAt: a.startsAt.toISOString(),
         endsAt: a.endsAt ? a.endsAt.toISOString() : null,
-        allDay: false,
+        allDay: looksAllDay,
         location: a.location,
         notes: a.visitNotes ?? a.prepNotes,
         status: null,

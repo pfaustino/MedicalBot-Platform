@@ -1571,8 +1571,30 @@ main.assistant-page {
   padding: 0.15rem 0.35rem;
 }
 
-.cal-empty {
-  padding: 1rem;
+.cal-slot {
+  cursor: pointer;
+}
+
+.cal-slot:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.field-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-direction: row;
+}
+
+.field-inline span {
+  margin: 0;
+}
+
+.gcal-form .field > span {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 
 .pill.kind-appointment {

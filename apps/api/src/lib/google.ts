@@ -234,13 +234,34 @@ export async function createGoogleCalendarEvent(
     endsAt?: Date | null
     location?: string | null
     description?: string | null
+    allDay?: boolean
   },
 ): Promise<string | null> {
   const token = await getGoogleAccessToken(userId)
   if (!token || !hasCalendarScope(token.scopes)) return null
 
-  const end =
-    event.endsAt ?? new Date(event.startsAt.getTime() + 60 * 60 * 1000)
+  const ymd = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+  let start: { date?: string; dateTime?: string }
+  let end: { date?: string; dateTime?: string }
+
+  if (event.allDay) {
+    const startDay = new Date(event.startsAt.getFullYear(), event.startsAt.getMonth(), event.startsAt.getDate())
+    // Google all-day end is exclusive.
+    const endExclusive = event.endsAt
+      ? new Date(event.endsAt.getFullYear(), event.endsAt.getMonth(), event.endsAt.getDate())
+      : new Date(startDay.getFullYear(), startDay.getMonth(), startDay.getDate() + 1)
+    if (+endExclusive <= +startDay) {
+      endExclusive.setDate(endExclusive.getDate() + 1)
+    }
+    start = { date: ymd(startDay) }
+    end = { date: ymd(endExclusive) }
+  } else {
+    const endAt = event.endsAt ?? new Date(event.startsAt.getTime() + 60 * 60 * 1000)
+    start = { dateTime: event.startsAt.toISOString() }
+    end = { dateTime: endAt.toISOString() }
+  }
 
   const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
     method: 'POST',
@@ -252,8 +273,8 @@ export async function createGoogleCalendarEvent(
       summary: event.title,
       location: event.location ?? undefined,
       description: event.description ?? undefined,
-      start: { dateTime: event.startsAt.toISOString() },
-      end: { dateTime: end.toISOString() },
+      start,
+      end,
     }),
   })
 

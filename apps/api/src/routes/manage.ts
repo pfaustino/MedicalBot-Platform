@@ -464,6 +464,8 @@ export async function manageRoutes(app: FastifyInstance): Promise<void> {
     location: z.string().max(300).nullable().default(null),
     providerId: z.string().uuid().nullable().default(null),
     prepNotes: z.string().max(2000).nullable().default(null),
+    /** Mirrors Google Calendar all-day events when syncing. */
+    allDay: z.boolean().optional().default(false),
   })
 
   app.post('/appointments', async (request, reply) => {
@@ -481,6 +483,7 @@ export async function manageRoutes(app: FastifyInstance): Promise<void> {
         endsAt: a.endsAt,
         location: a.location,
         description: a.prepNotes,
+        allDay: a.allDay,
       })
     } catch (err) {
       request.log.warn({ err }, 'Could not sync appointment to Google Calendar')

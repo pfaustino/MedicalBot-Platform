@@ -199,15 +199,70 @@ function EventDetail({ item, onChanged, onClose }: { item: CalendarItem; onChang
   )
 }
 
-function AppointmentForm({ onDone }: { onDone: (synced: boolean) => void }) {
+function pad2(n: number): string {
+  return String(n).padStart(2, '0')
+}
+
+/** Value for <input type="datetime-local"> in local time. */
+function toDatetimeLocal(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+}
+
+/** Value for <input type="date"> in local time. */
+function toDateLocal(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+}
+
+function parseDateLocal(value: string): Date {
+  const [y, m, d] = value.split('-').map(Number)
+  return new Date(y!, (m ?? 1) - 1, d ?? 1)
+}
+
+export type EventDraft = {
+  allDay: boolean
+  start: Date
+  end: Date
+}
+
+function defaultTimedDraft(at: Date = new Date()): EventDraft {
+  const start = new Date(at)
+  start.setMinutes(0, 0, 0)
+  const end = new Date(start.getTime() + 60 * 60 * 1000)
+  return { allDay: false, start, end }
+}
+
+function defaultAllDayDraft(day: Date): EventDraft {
+  const start = startOfDay(day)
+  const end = addDays(start, 1)
+  return { allDay: true, start, end }
+}
+
+function AppointmentForm({
+  draft,
+  onDone,
+}: {
+  draft: EventDraft
+  onDone: (synced: boolean) => void
+}) {
   const [title, setTitle] = useState('')
-  const [type, setType] = useState('office_visit')
-  const [startsAt, setStartsAt] = useState('')
-  const [endsAt, setEndsAt] = useState('')
+  const [allDay, setAllDay] = useState(draft.allDay)
+  const [startDate, setStartDate] = useState(toDateLocal(draft.start))
+  const [endDate, setEndDate] = useState(toDateLocal(addDays(draft.end, draft.allDay ? -1 : 0)))
+  const [startDateTime, setStartDateTime] = useState(toDatetimeLocal(draft.start))
+  const [endDateTime, setEndDateTime] = useState(toDatetimeLocal(draft.end))
   const [location, setLocation] = useState('')
-  const [prepNotes, setPrepNotes] = useState('')
+  const [description, setDescription] = useState('')
+  const [type, setType] = useState('office_visit')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setAllDay(draft.allDay)
+    setStartDate(toDateLocal(draft.start))
+    setEndDate(toDateLocal(draft.allDay ? addDays(draft.end, -1) : draft.end))
+    setStartDateTime(toDatetimeLocal(draft.start))
+    setEndDateTime(toDatetimeLocal(draft.end))
+  }, [draft])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -216,78 +271,141 @@ function AppointmentForm({ onDone }: { onDone: (synced: boolean) => void }) {
       setError('A title is required.')
       return
     }
-    if (!startsAt) {
-      setError('A start date and time is required.')
-      return
-    }
-    if (endsAt && new Date(endsAt) < new Date(startsAt)) {
-      setError('The end time cannot be before the start time.')
-      return
+
+    let startsAt: Date
+    let endsAt: Date
+    if (allDay) {
+      if (!startDate || !endDate) {
+        setError('Start and end dates are required.')
+        return
+      }
+      startsAt = parseDateLocal(startDate)
+      // Store exclusive end (next calendar day after inclusive UI end), matching Google.
+      endsAt = addDays(parseDateLocal(endDate), 1)
+      if (+endsAt <= +startsAt) {
+        setError('End date cannot be before the start date.')
+        return
+      }
+    } else {
+      if (!startDateTime) {
+        setError('A start date and time is required.')
+        return
+      }
+      startsAt = new Date(startDateTime)
+      endsAt = endDateTime ? new Date(endDateTime) : new Date(startsAt.getTime() + 60 * 60 * 1000)
+      if (+endsAt < +startsAt) {
+        setError('End time cannot be before the start time.')
+        return
+      }
     }
 
     const body: Record<string, unknown> = {
       title: title.trim(),
       type,
-      startsAt: new Date(startsAt).toISOString(),
+      startsAt: startsAt.toISOString(),
+      endsAt: endsAt.toISOString(),
+      allDay,
     }
-    if (endsAt) body.endsAt = new Date(endsAt).toISOString()
     if (location.trim()) body.location = location.trim()
-    if (prepNotes.trim()) body.prepNotes = prepNotes.trim()
+    if (description.trim()) body.prepNotes = description.trim()
 
     setBusy(true)
     try {
       const res = await apiPost<{ id: string; synced?: boolean }>('/api/appointments', body)
       onDone(Boolean(res.synced))
     } catch {
-      setError('Could not save that appointment. Please try again.')
+      setError('Could not save that event. Please try again.')
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <form onSubmit={(e) => void submit(e)}>
-      <div className="form-grid">
-        <label className="field">
-          <span>Title</span>
-          <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Endocrinology follow-up" autoFocus />
-        </label>
-        <label className="field">
-          <span>Type</span>
-          <select value={type} onChange={(e) => setType(e.target.value)}>
-            {Object.entries(APPT_TYPE_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          <span>Starts</span>
-          <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
-        </label>
-        <label className="field">
-          <span>Ends (optional)</span>
-          <input type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
-        </label>
-        <label className="field">
-          <span>Location (optional)</span>
-          <input type="text" value={location} onChange={(e) => setLocation(e.target.value)} />
-        </label>
-      </div>
+    <form onSubmit={(e) => void submit(e)} className="gcal-form">
       <label className="field">
-        <span>Prep notes (optional)</span>
+        <span>Title</span>
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Add title"
+          autoFocus
+        />
+      </label>
+
+      <label className="field field-inline">
+        <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} />
+        <span>All day</span>
+      </label>
+
+      {allDay ? (
+        <div className="form-grid">
+          <label className="field">
+            <span>Start date</span>
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          </label>
+          <label className="field">
+            <span>End date</span>
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          </label>
+        </div>
+      ) : (
+        <div className="form-grid">
+          <label className="field">
+            <span>Start</span>
+            <input
+              type="datetime-local"
+              value={startDateTime}
+              onChange={(e) => setStartDateTime(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>End</span>
+            <input
+              type="datetime-local"
+              value={endDateTime}
+              onChange={(e) => setEndDateTime(e.target.value)}
+            />
+          </label>
+        </div>
+      )}
+
+      <label className="field">
+        <span>Location</span>
+        <input
+          type="text"
+          value={location}
+          onChange={(e) => setLocation(e.target.value)}
+          placeholder="Add location"
+        />
+      </label>
+
+      <label className="field">
+        <span>Description</span>
         <textarea
-          value={prepNotes}
-          onChange={(e) => setPrepNotes(e.target.value)}
-          placeholder="Questions to ask, things to bring, what to fast for."
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Add description"
           rows={3}
         />
       </label>
+
+      <label className="field">
+        <span>Event type (MedicalBot)</span>
+        <select value={type} onChange={(e) => setType(e.target.value)}>
+          {Object.entries(APPT_TYPE_LABELS).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </label>
+
       {error && <p className="field-error">{error}</p>}
+
       <div className="form-actions">
         <button type="submit" className="btn-primary" disabled={busy}>
-          {busy ? 'Saving…' : 'Add appointment'}
+          {busy ? 'Saving…' : 'Save'}
         </button>
       </div>
     </form>
@@ -302,7 +420,10 @@ function EventChip({ item, onSelect }: { item: CalendarItem; onSelect: (item: Ca
     <button
       type="button"
       className={`cal-event kind-${item.kind}`}
-      onClick={() => onSelect(item)}
+      onClick={(e) => {
+        e.stopPropagation()
+        onSelect(item)
+      }}
       title={`${item.title} · ${time}`}
     >
       <span className="cal-event-time">{time}</span>
@@ -316,11 +437,13 @@ function MonthView({
   byDay,
   onSelectDay,
   onSelectItem,
+  onCreate,
 }: {
   cursor: Date
   byDay: Map<string, CalendarItem[]>
   onSelectDay: (d: Date) => void
   onSelectItem: (item: CalendarItem) => void
+  onCreate: (draft: EventDraft) => void
 }) {
   const today = startOfDay(new Date())
   const first = startOfMonth(cursor)
@@ -345,9 +468,25 @@ function MonthView({
           return (
             <div
               key={key}
+              role="button"
+              tabIndex={0}
               className={`cal-month-cell ${inMonth ? '' : 'outside'} ${isToday ? 'today' : ''}`}
+              onClick={() => onCreate(defaultAllDayDraft(day))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onCreate(defaultAllDayDraft(day))
+                }
+              }}
             >
-              <button type="button" className="cal-month-date" onClick={() => onSelectDay(day)}>
+              <button
+                type="button"
+                className="cal-month-date"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onSelectDay(day)
+                }}
+              >
                 {day.getDate()}
               </button>
               <div className="cal-month-events">
@@ -355,7 +494,14 @@ function MonthView({
                   <EventChip key={`${item.kind}-${item.id}`} item={item} onSelect={onSelectItem} />
                 ))}
                 {items.length > 3 && (
-                  <button type="button" className="cal-more" onClick={() => onSelectDay(day)}>
+                  <button
+                    type="button"
+                    className="cal-more"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onSelectDay(day)
+                    }}
+                  >
                     +{items.length - 3} more
                   </button>
                 )}
@@ -372,10 +518,12 @@ function WeekView({
   cursor,
   byDay,
   onSelectItem,
+  onCreate,
 }: {
   cursor: Date
   byDay: Map<string, CalendarItem[]>
   onSelectItem: (item: CalendarItem) => void
+  onCreate: (draft: EventDraft) => void
 }) {
   const today = startOfDay(new Date())
   const weekStart = startOfWeek(cursor)
@@ -397,7 +545,11 @@ function WeekView({
         {days.map((day) => {
           const items = (byDay.get(dayKey(day)) ?? []).filter((i) => i.allDay)
           return (
-            <div key={dayKey(day)} className="cal-week-allday-cell">
+            <div
+              key={dayKey(day)}
+              className="cal-week-allday-cell cal-slot"
+              onClick={() => onCreate(defaultAllDayDraft(day))}
+            >
               {items.map((item) => (
                 <EventChip key={`${item.kind}-${item.id}`} item={item} onSelect={onSelectItem} />
               ))}
@@ -410,9 +562,14 @@ function WeekView({
           <div key={hour} className="cal-week-row">
             <div className="cal-gutter muted">{formatHour(hour)}</div>
             {days.map((day) => {
+              const slot = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour)
               const items = (byDay.get(dayKey(day)) ?? []).filter((i) => !i.allDay && itemHour(i) === hour)
               return (
-                <div key={dayKey(day)} className="cal-week-cell">
+                <div
+                  key={dayKey(day)}
+                  className="cal-week-cell cal-slot"
+                  onClick={() => onCreate(defaultTimedDraft(slot))}
+                >
                   {items.map((item) => (
                     <EventChip key={`${item.kind}-${item.id}`} item={item} onSelect={onSelectItem} />
                   ))}
@@ -430,10 +587,12 @@ function DayView({
   cursor,
   byDay,
   onSelectItem,
+  onCreate,
 }: {
   cursor: Date
   byDay: Map<string, CalendarItem[]>
   onSelectItem: (item: CalendarItem) => void
+  onCreate: (draft: EventDraft) => void
 }) {
   const items = byDay.get(dayKey(cursor)) ?? []
   const allDay = items.filter((i) => i.allDay)
@@ -441,23 +600,25 @@ function DayView({
 
   return (
     <div className="cal-day">
-      {allDay.length > 0 && (
-        <div className="cal-day-allday">
-          <div className="cal-gutter muted">All day</div>
-          <div className="cal-day-allday-list">
-            {allDay.map((item) => (
-              <EventChip key={`${item.kind}-${item.id}`} item={item} onSelect={onSelectItem} />
-            ))}
-          </div>
+      <div
+        className="cal-day-allday cal-slot"
+        onClick={() => onCreate(defaultAllDayDraft(cursor))}
+      >
+        <div className="cal-gutter muted">All day</div>
+        <div className="cal-day-allday-list">
+          {allDay.map((item) => (
+            <EventChip key={`${item.kind}-${item.id}`} item={item} onSelect={onSelectItem} />
+          ))}
         </div>
-      )}
+      </div>
       <div className="cal-day-body">
         {HOURS.map((hour) => {
           const hourItems = timed.filter((i) => itemHour(i) === hour)
+          const slot = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate(), hour)
           return (
             <div key={hour} className="cal-day-row">
               <div className="cal-gutter muted">{formatHour(hour)}</div>
-              <div className="cal-day-cell">
+              <div className="cal-day-cell cal-slot" onClick={() => onCreate(defaultTimedDraft(slot))}>
                 {hourItems.map((item) => (
                   <EventChip key={`${item.kind}-${item.id}`} item={item} onSelect={onSelectItem} />
                 ))}
@@ -466,7 +627,7 @@ function DayView({
           )
         })}
       </div>
-      {items.length === 0 && <p className="hint cal-empty">Nothing scheduled for this day.</p>}
+      {items.length === 0 && <p className="hint cal-empty">Nothing scheduled — click a time slot to add.</p>}
     </div>
   )
 }
@@ -475,10 +636,12 @@ function CalendarBoard({
   items,
   filter,
   onChanged,
+  onCreate,
 }: {
   items: CalendarItem[]
   filter: KindFilter
   onChanged: () => void
+  onCreate: (draft: EventDraft) => void
 }) {
   const [view, setView] = useState<ViewMode>('month')
   const [cursor, setCursor] = useState(() => startOfDay(new Date()))
@@ -555,22 +718,19 @@ function CalendarBoard({
             setView('day')
           }}
           onSelectItem={setSelected}
+          onCreate={onCreate}
         />
       )}
-      {view === 'week' && <WeekView cursor={cursor} byDay={byDay} onSelectItem={setSelected} />}
-      {view === 'day' && <DayView cursor={cursor} byDay={byDay} onSelectItem={setSelected} />}
+      {view === 'week' && (
+        <WeekView cursor={cursor} byDay={byDay} onSelectItem={setSelected} onCreate={onCreate} />
+      )}
+      {view === 'day' && (
+        <DayView cursor={cursor} byDay={byDay} onSelectItem={setSelected} onCreate={onCreate} />
+      )}
 
-      <Modal
-        open={Boolean(selected)}
-        title={selected?.title ?? 'Event'}
-        onClose={() => setSelected(null)}
-      >
+      <Modal open={Boolean(selected)} title={selected?.title ?? 'Event'} onClose={() => setSelected(null)}>
         {selected && (
-          <EventDetail
-            item={selected}
-            onChanged={onChanged}
-            onClose={() => setSelected(null)}
-          />
+          <EventDetail item={selected} onChanged={onChanged} onClose={() => setSelected(null)} />
         )}
       </Modal>
     </div>
@@ -579,7 +739,7 @@ function CalendarBoard({
 
 export default function CalendarPage() {
   const toast = useToast()
-  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState<EventDraft | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [filter, setFilter] = useState<KindFilter>('all')
   const refetch = () => setReloadKey((k) => k + 1)
@@ -603,8 +763,8 @@ export default function CalendarPage() {
             <p className="muted">Appointments, dated To Dos, and Google Calendar in one place.</p>
           </div>
           <div className="page-actions">
-            <button type="button" className="btn-primary" onClick={() => setOpen(true)}>
-              + Add appointment
+            <button type="button" className="btn-primary" onClick={() => setDraft(defaultTimedDraft())}>
+              + Add event
             </button>
           </div>
         </div>
@@ -660,20 +820,29 @@ export default function CalendarPage() {
                   ))}
                 </div>
 
-                <CalendarBoard items={allItems} filter={filter} onChanged={refetch} />
+                <CalendarBoard
+                  items={allItems}
+                  filter={filter}
+                  onChanged={refetch}
+                  onCreate={setDraft}
+                />
               </>
             )
           }}
         </Loaded>
 
-        <Modal open={open} title="Add appointment" onClose={() => setOpen(false)} wide>
-          <AppointmentForm
-            onDone={(synced) => {
-              setOpen(false)
-              refetch()
-              toast.show(synced ? 'Appointment added and synced to Google.' : 'Appointment added.', 'ok')
-            }}
-          />
+        <Modal open={Boolean(draft)} title="Add event" onClose={() => setDraft(null)} wide>
+          {draft && (
+            <AppointmentForm
+              key={`${draft.allDay}-${draft.start.toISOString()}-${draft.end.toISOString()}`}
+              draft={draft}
+              onDone={(synced) => {
+                setDraft(null)
+                refetch()
+                toast.show(synced ? 'Event saved and synced to Google.' : 'Event saved.', 'ok')
+              }}
+            />
+          )}
         </Modal>
       </main>
     </AppGate>
