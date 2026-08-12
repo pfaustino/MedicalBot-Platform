@@ -59,9 +59,17 @@ function eventLocalDay(iso: string): string {
 function describeSchedule(s: Schedule): string {
   if (s.kind === 'as_needed') return 'As needed'
   if (s.kind === 'interval_hours') return 'On an interval'
+  if (s.kind === 'cyclic') return 'Cyclic'
   if (!s.times?.length) return 'No times set'
   const times = s.times.join(', ')
-  return `${s.times.length}× daily at ${times}${s.withFood ? ' · with food' : ''}`
+  return `at ${times}${s.withFood ? ' · with food' : ''}`
+}
+
+function scheduleTag(s: Schedule): string {
+  if (s.kind === 'as_needed') return 'As needed'
+  if (s.kind === 'interval_hours') return 'Interval'
+  if (s.kind === 'cyclic') return 'Cyclic'
+  return 'Daily'
 }
 
 const DAY_RANK: Record<string, number> = {
@@ -191,13 +199,17 @@ function MedCard({
             </label>
           )}
           <div>
-            <h2>
-              {m.name} <span className="muted">{m.dose}</span>
-              {!m.isActive && <span className="badge"> Inactive</span>}
+            <h2 className="med-heading">
+              <span className="med-heading-name">
+                {m.name} <span className="muted">{m.dose}</span>
+              </span>
+              <span className="badge med-schedule-tag">{scheduleTag(m.schedule)}</span>
+              {!m.isActive && <span className="badge">Inactive</span>}
             </h2>
             <p className="hint">
               {describeSchedule(m.schedule)}
-              {m.purpose && ` · ${m.purpose}`}
+              {m.purpose ? ` · ${m.purpose}` : ''}
+              {m.schedule.instructions ? ` · ${m.schedule.instructions}` : ''}
             </p>
           </div>
         </div>
@@ -213,13 +225,13 @@ function MedCard({
 
       <AdherenceChart events={m.events30d ?? []} endingOn={logDate} />
 
-      <dl className="detail-grid">
+      <dl className="med-meta-row">
         <div>
-          <dt>Doses tracked</dt>
+          <dt>Doses</dt>
           <dd>{m.doseCount30d}</dd>
         </div>
         <div>
-          <dt>Missed or skipped</dt>
+          <dt>Missed</dt>
           <dd>{m.missed30d}</dd>
         </div>
         <div>
@@ -227,7 +239,7 @@ function MedCard({
           <dd>{m.prescriber ?? '—'}</dd>
         </div>
         <div>
-          <dt>Refills left</dt>
+          <dt>Refills</dt>
           <dd>
             {m.refillsRemaining ?? '—'}
             {m.refillsRemaining === 0 && <span className="badge badge-warn">Needs refill</span>}
@@ -242,8 +254,6 @@ function MedCard({
           <dd>{m.pharmacy ?? '—'}</dd>
         </div>
       </dl>
-
-      {m.schedule.instructions && <p className="hint">{m.schedule.instructions}</p>}
 
       {m.isActive && (
         <>

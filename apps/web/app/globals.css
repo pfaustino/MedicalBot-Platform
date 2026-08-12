@@ -457,6 +457,53 @@ h3 {
   padding-top: 0.35rem;
 }
 
+.med-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.55rem;
+}
+
+.med-heading-name {
+  min-width: 0;
+}
+
+.med-schedule-tag {
+  text-transform: capitalize;
+  font-weight: 500;
+  font-size: 0.75rem;
+  vertical-align: middle;
+}
+
+.med-meta-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 0.85rem 1.15rem;
+  margin: 0.75rem 0 0;
+  overflow-x: auto;
+  padding-bottom: 0.15rem;
+}
+
+.med-meta-row > div {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.med-meta-row dt {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin: 0;
+}
+
+.med-meta-row dd {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
 .adherence-chart {
   margin: 0.75rem 0 0.25rem;
 }
