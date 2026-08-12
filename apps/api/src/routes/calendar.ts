@@ -149,7 +149,10 @@ export async function calendarRoutes(app: FastifyInstance): Promise<void> {
         }
       } catch (err) {
         request.log.warn({ err }, 'Google Calendar fetch failed')
-        googleError = 'Could not load Google Calendar events. Try reconnecting.'
+        googleError =
+          err instanceof Error && err.message
+            ? err.message
+            : 'Could not load Google Calendar events. Try reconnecting.'
       }
     }
 

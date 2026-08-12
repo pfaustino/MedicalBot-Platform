@@ -622,10 +622,17 @@ export default function CalendarPage() {
                         ? ' — connected; new appointments sync automatically.'
                         : ' — connect to show Google events and sync new appointments.'}
                     </span>
-                    {d.google.error && <span className="field-error"> {d.google.error}</span>}
+                    {d.google.error && (
+                      <p className="field-error" style={{ margin: '0.35rem 0 0' }}>
+                        {d.google.error}{' '}
+                        <a href="/auth/google/connect/calendar">Reconnect</a>
+                      </p>
+                    )}
                   </div>
                   {d.google.connected ? (
-                    <span className="pill">Connected</span>
+                    <a className="btn-ghost btn-sm" href="/auth/google/connect/calendar">
+                      Reconnect
+                    </a>
                   ) : (
                     <a className="btn-secondary btn-sm" href="/auth/google/connect/calendar">
                       Connect

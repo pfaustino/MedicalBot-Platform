@@ -109,13 +109,46 @@ export type GoogleCalendarEvent = {
   htmlLink: string | null
 }
 
+async function googleErrorDetail(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: { message?: string; status?: string } }
+    return body.error?.message ?? body.error?.status ?? res.statusText
+  } catch {
+    return res.statusText || `HTTP ${res.status}`
+  }
+}
+
+function mapCalendarListError(status: number, detail: string): Error {
+  const lower = detail.toLowerCase()
+  if (status === 401 || lower.includes('invalid credentials') || lower.includes('auth')) {
+    return new Error('Google session expired. Disconnect isn’t needed — click Connect Google Calendar again.')
+  }
+  if (
+    status === 403 &&
+    (lower.includes('has not been used') ||
+      lower.includes('disabled') ||
+      lower.includes('access not configured') ||
+      lower.includes('calendar api'))
+  ) {
+    return new Error(
+      'Google Calendar API is not enabled on your Google Cloud project. In Google Cloud Console → APIs & Services → Library, enable “Google Calendar API”, then reload.',
+    )
+  }
+  if (status === 403) {
+    return new Error(
+      'Google denied Calendar access. Reconnect Google Calendar and make sure the calendar.events scope is granted.',
+    )
+  }
+  return new Error(`Google Calendar list failed (${status}): ${detail}`)
+}
+
 /** List primary-calendar events in [timeMin, timeMax). */
 export async function listGoogleCalendarEvents(
   userId: string,
   timeMin: Date,
   timeMax: Date,
 ): Promise<GoogleCalendarEvent[]> {
-  const token = await getGoogleAccessToken(userId)
+  let token = await getGoogleAccessToken(userId)
   if (!token || !hasCalendarScope(token.scopes)) return []
 
   const params = new URLSearchParams({
@@ -123,15 +156,44 @@ export async function listGoogleCalendarEvents(
     timeMax: timeMax.toISOString(),
     singleEvents: 'true',
     orderBy: 'startTime',
-    maxResults: '100',
+    maxResults: '250',
   })
+  const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`
 
-  const res = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
-    { headers: { Authorization: `Bearer ${token.accessToken}` } },
-  )
+  async function fetchList(accessToken: string): Promise<Response> {
+    return fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+  }
+
+  let res = await fetchList(token.accessToken)
+
+  // Access token may be stale even if expiresAt says otherwise — refresh once.
+  if (res.status === 401) {
+    const [row] = await db
+      .select({ refreshTokenEncrypted: schema.googleAccounts.refreshTokenEncrypted })
+      .from(schema.googleAccounts)
+      .where(eq(schema.googleAccounts.userId, userId))
+      .limit(1)
+    if (row?.refreshTokenEncrypted) {
+      const refreshed = await refreshAccessToken(decrypt(row.refreshTokenEncrypted))
+      await db
+        .update(schema.googleAccounts)
+        .set({
+          accessToken: refreshed.access_token,
+          expiresAt: new Date(Date.now() + refreshed.expires_in * 1000),
+          ...(refreshed.scope ? { scopes: mergeScopes(token.scopes, refreshed.scope) } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.googleAccounts.userId, userId))
+      token = {
+        accessToken: refreshed.access_token,
+        scopes: refreshed.scope ? mergeScopes(token.scopes, refreshed.scope) : token.scopes,
+      }
+      res = await fetchList(token.accessToken)
+    }
+  }
+
   if (!res.ok) {
-    throw new Error(`Google Calendar list failed (${res.status})`)
+    throw mapCalendarListError(res.status, await googleErrorDetail(res))
   }
 
   const data = (await res.json()) as {
