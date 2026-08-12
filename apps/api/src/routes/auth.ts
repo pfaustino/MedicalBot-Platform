@@ -161,6 +161,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         sub: string
         email: string
         name?: string
+        picture?: string
       }
 
       const userId = await upsertUser(googleProfile, tokens)
@@ -276,8 +277,11 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         termsVersion: schema.users.termsVersion,
         mustChangePassword: schema.users.mustChangePassword,
         hasPassword: schema.users.passwordHash,
+        avatarUrl: schema.profiles.avatarUrl,
+        displayName: schema.profiles.displayName,
       })
       .from(schema.users)
+      .leftJoin(schema.profiles, eq(schema.profiles.userId, schema.users.id))
       .where(eq(schema.users.id, userId))
       .limit(1)
 
@@ -294,6 +298,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       hasPassword: Boolean(user.hasPassword),
       needsTermsAcceptance: needsTermsAcceptance(user.termsAcceptedAt, user.termsVersion),
       currentTermsVersion: TERMS_VERSION,
+      avatarUrl: user.avatarUrl ?? null,
+      displayName: user.displayName ?? null,
     })
   })
 
@@ -320,7 +326,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 }
 
 async function upsertUser(
-  profile: { sub: string; email: string; name?: string },
+  profile: { sub: string; email: string; name?: string; picture?: string },
   tokens: { access_token: string; refresh_token?: string; expires_in: number; scope: string },
 ): Promise<string> {
   // Promote the configured operator to owner on sign-in. Never auto-downgrade an
@@ -367,8 +373,18 @@ async function upsertUser(
 
     await tx
       .insert(schema.profiles)
-      .values({ userId, displayName: profile.name ?? profile.email })
-      .onConflictDoNothing()
+      .values({
+        userId,
+        displayName: profile.name ?? profile.email,
+        avatarUrl: profile.picture ?? null,
+      })
+      .onConflictDoUpdate({
+        target: schema.profiles.userId,
+        set: {
+          ...(profile.picture ? { avatarUrl: profile.picture } : {}),
+          updatedAt: new Date(),
+        },
+      })
 
     return userId
   }).then(async (userId) => {

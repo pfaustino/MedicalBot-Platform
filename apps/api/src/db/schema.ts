@@ -55,6 +55,8 @@ export const profiles = pgTable('profiles', {
     .primaryKey()
     .references(() => users.id, { onDelete: 'cascade' }),
   displayName: text('display_name').notNull(),
+  /** Google profile photo URL when signed in with Google; null for password-only accounts. */
+  avatarUrl: text('avatar_url'),
   dateOfBirth: date('date_of_birth'),
   sexAtBirth: text('sex_at_birth'),
   heightCm: numeric('height_cm', { precision: 5, scale: 1 }),

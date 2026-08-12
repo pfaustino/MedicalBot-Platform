@@ -12,6 +12,8 @@ export interface Me {
   hasPassword: boolean
   needsTermsAcceptance: boolean
   onboardedAt: string | null
+  avatarUrl: string | null
+  displayName: string | null
 }
 
 type MeState =

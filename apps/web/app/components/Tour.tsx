@@ -66,19 +66,19 @@ function steps(isAdmin: boolean): Step[] {
     {
       anchor: 'nav-profile',
       title: 'Profile',
-      body: 'Your details, allergies, and care team. Filling this in makes your summaries and targets more accurate.',
+      body: 'Your photo in the top-right opens your profile — details, allergies, and care team.',
     },
     {
       anchor: 'nav-settings',
       title: 'Settings',
-      body: 'Preferences, your assistant’s personality — and you can replay this tour here any time.',
+      body: 'The gear opens Settings (and Admin if you have access), plus Sign out. Replay this tour from Settings any time.',
     },
   ]
   if (isAdmin) {
     base.push({
-      anchor: 'nav-admin',
+      anchor: 'nav-settings',
       title: 'Admin',
-      body: 'As an admin you get a platform overview and user management. The owner can grant admin access to others here.',
+      body: 'Open the gear menu and choose Admin for platform overview and user management.',
     })
   }
   base.push({
