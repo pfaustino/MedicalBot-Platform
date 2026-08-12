@@ -1347,6 +1347,234 @@ main.assistant-page {
   margin-bottom: 1rem;
 }
 
+.calendar-google-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 0.75rem 0 1rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.calendar-page {
+  max-width: 72rem;
+}
+
+.cal-board {
+  margin-top: 0.75rem;
+}
+
+.cal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.cal-range-label {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.cal-gutter {
+  width: 3.5rem;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  text-align: right;
+  padding-right: 0.5rem;
+}
+
+.cal-event {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 0.3rem;
+  padding: 0.15rem 0.35rem;
+  margin: 0.1rem 0;
+  font-size: 0.72rem;
+  line-height: 1.25;
+  cursor: pointer;
+  color: var(--fg);
+  background: var(--accent-weak);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cal-event.kind-todo {
+  background: color-mix(in srgb, #e6a23c 22%, var(--surface));
+}
+
+.cal-event.kind-google {
+  background: color-mix(in srgb, #5b8def 22%, var(--surface));
+}
+
+.cal-event.kind-appointment {
+  background: color-mix(in srgb, var(--accent) 28%, var(--surface));
+}
+
+.cal-event-time {
+  opacity: 0.75;
+  margin-right: 0.3rem;
+}
+
+.cal-more {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+  padding: 0.1rem 0.25rem;
+}
+
+/* Month */
+.cal-month-head,
+.cal-month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.cal-month-dow {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--muted);
+  padding: 0.35rem 0;
+  font-weight: 600;
+}
+
+.cal-month-cell {
+  min-height: 6.5rem;
+  border: 1px solid var(--border);
+  padding: 0.25rem;
+  background: var(--surface);
+}
+
+.cal-month-cell.outside {
+  opacity: 0.45;
+}
+
+.cal-month-cell.today {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.cal-month-date {
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+  border-radius: 999px;
+}
+
+.cal-month-cell.today .cal-month-date {
+  background: var(--accent);
+  color: #fff;
+}
+
+.cal-month-events {
+  margin-top: 0.15rem;
+}
+
+/* Week */
+.cal-week {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: auto;
+  max-height: min(70vh, 44rem);
+  background: var(--surface);
+}
+
+.cal-week-head,
+.cal-week-allday,
+.cal-week-row {
+  display: grid;
+  grid-template-columns: 3.5rem repeat(7, minmax(0, 1fr));
+  min-width: 48rem;
+}
+
+.cal-week-dayhead {
+  text-align: center;
+  padding: 0.5rem 0.25rem;
+  border-bottom: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+
+.cal-week-dayhead.today {
+  color: var(--accent);
+}
+
+.cal-week-dow {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.cal-week-dom {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.cal-week-allday {
+  border-bottom: 1px solid var(--border);
+  align-items: start;
+}
+
+.cal-week-allday-cell,
+.cal-week-cell,
+.cal-day-cell {
+  border-left: 1px solid var(--border);
+  min-height: 2.4rem;
+  padding: 0.15rem;
+}
+
+.cal-week-row,
+.cal-day-row {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.cal-week-body .cal-gutter,
+.cal-day-body .cal-gutter {
+  padding-top: 0.35rem;
+}
+
+/* Day */
+.cal-day {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: auto;
+  max-height: min(70vh, 44rem);
+  background: var(--surface);
+}
+
+.cal-day-allday,
+.cal-day-row {
+  display: grid;
+  grid-template-columns: 3.5rem 1fr;
+}
+
+.cal-day-allday {
+  border-bottom: 1px solid var(--border);
+  padding: 0.35rem 0;
+  align-items: start;
+}
+
+.cal-day-allday-list {
+  padding: 0.15rem 0.35rem;
+}
+
+.cal-empty {
+  padding: 1rem;
+}
+
 .pill.kind-appointment {
   border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
 }
@@ -1357,6 +1585,15 @@ main.assistant-page {
 
 .pill.kind-google {
   border-color: color-mix(in srgb, #5b8def 50%, var(--border));
+}
+
+@media (max-width: 720px) {
+  .cal-month-cell {
+    min-height: 4.5rem;
+  }
+  .cal-event-time {
+    display: none;
+  }
 }
 
 .build-footer {

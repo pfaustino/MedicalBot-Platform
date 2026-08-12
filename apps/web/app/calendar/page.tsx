@@ -8,7 +8,8 @@ import { Loaded } from '../components/Loader'
 import { apiPatch, apiPost } from '@/lib/api'
 import { formatDate, formatDateTime, titleCase, APPT_TYPE_LABELS } from '@/lib/format'
 
-type Kind = 'appointment' | 'todo' | 'google' | 'all'
+type KindFilter = 'appointment' | 'todo' | 'google' | 'all'
+type ViewMode = 'day' | 'week' | 'month'
 
 interface CalendarItem {
   id: string
@@ -38,28 +39,76 @@ const KIND_LABEL: Record<CalendarItem['kind'], string> = {
   google: 'Google',
 }
 
-function dayKey(iso: string): string {
-  const d = new Date(iso)
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const HOURS = Array.from({ length: 24 }, (_, i) => i)
+
+function startOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+}
+
+function addDays(d: Date, n: number): Date {
+  const x = new Date(d)
+  x.setDate(x.getDate() + n)
+  return x
+}
+
+function startOfWeek(d: Date): Date {
+  const s = startOfDay(d)
+  return addDays(s, -s.getDay())
+}
+
+function startOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), 1)
+}
+
+function sameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}
+
+function dayKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function dayHeading(iso: string): string {
-  return formatDate(iso)
+function itemDayKey(item: CalendarItem): string {
+  const d = new Date(item.startsAt)
+  return dayKey(d)
 }
 
-function ItemCard({
-  item,
-  past,
-  onChanged,
-}: {
-  item: CalendarItem
-  past: boolean
-  onChanged: () => void
-}) {
+function itemHour(item: CalendarItem): number {
+  if (item.allDay) return 0
+  return new Date(item.startsAt).getHours()
+}
+
+function formatHour(h: number): string {
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const hr = h % 12 || 12
+  return `${hr} ${ampm}`
+}
+
+function monthLabel(d: Date): string {
+  return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+}
+
+function rangeLabel(view: ViewMode, cursor: Date): string {
+  if (view === 'month') return monthLabel(cursor)
+  if (view === 'day') {
+    return cursor.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+  }
+  const start = startOfWeek(cursor)
+  const end = addDays(start, 6)
+  const sameMonth = start.getMonth() === end.getMonth()
+  if (sameMonth) {
+    return `${start.toLocaleDateString(undefined, { month: 'long', day: 'numeric' })} – ${end.getDate()}, ${end.getFullYear()}`
+  }
+  return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+}
+
+function EventDetail({ item, onChanged, onClose }: { item: CalendarItem; onChanged: () => void; onClose: () => void }) {
   const toast = useToast()
   const [editingNotes, setEditingNotes] = useState(false)
   const [notes, setNotes] = useState(item.notes ?? '')
   const [busy, setBusy] = useState(false)
+  const past = new Date(item.startsAt) < new Date()
 
   async function saveVisitNotes() {
     if (item.kind !== 'appointment') return
@@ -83,6 +132,7 @@ function ItemCard({
       await apiPatch(`/api/todos/${item.id}`, { status: 'done' })
       toast.show('To Do marked done.', 'ok')
       onChanged()
+      onClose()
     } catch {
       toast.show('Could not update To Do.', 'err')
     } finally {
@@ -91,27 +141,18 @@ function ItemCard({
   }
 
   return (
-    <div className="card">
-      <div className="card-head">
-        <div>
-          <div className="chip-row" style={{ marginBottom: '0.35rem' }}>
-            <span className={`pill kind-${item.kind}`}>{KIND_LABEL[item.kind]}</span>
-            {item.synced && <span className="pill">Synced</span>}
-            {item.type && <span className="pill">{APPT_TYPE_LABELS[item.type] ?? titleCase(item.type)}</span>}
-            {item.status && item.status !== 'open' && (
-              <span className="pill">{titleCase(item.status)}</span>
-            )}
-          </div>
-          <h3 style={{ margin: 0 }}>{item.title}</h3>
-          <p className="muted" style={{ margin: '0.25rem 0 0' }}>
-            {item.allDay ? dayHeading(item.startsAt) : formatDateTime(item.startsAt)}
-            {item.location ? ` · ${item.location}` : ''}
-          </p>
-        </div>
+    <div className="stack">
+      <div className="chip-row">
+        <span className={`pill kind-${item.kind}`}>{KIND_LABEL[item.kind]}</span>
+        {item.synced && <span className="pill">Synced</span>}
+        {item.type && <span className="pill">{APPT_TYPE_LABELS[item.type] ?? titleCase(item.type)}</span>}
+        {item.status && item.status !== 'open' && <span className="pill">{titleCase(item.status)}</span>}
       </div>
-
-      {item.notes && item.kind !== 'appointment' && <p className="hint">{item.notes}</p>}
-
+      <p className="muted" style={{ margin: 0 }}>
+        {item.allDay ? formatDate(item.startsAt) : formatDateTime(item.startsAt)}
+        {item.location ? ` · ${item.location}` : ''}
+      </p>
+      {item.notes && <p>{item.notes}</p>}
       {item.kind === 'google' && item.htmlLink && (
         <p>
           <a href={item.htmlLink} target="_blank" rel="noreferrer">
@@ -119,10 +160,9 @@ function ItemCard({
           </a>
         </p>
       )}
-
       {item.kind === 'todo' && item.status === 'open' && (
         <div className="btn-row">
-          <button type="button" className="btn-ghost btn-sm" disabled={busy} onClick={() => void markTodoDone()}>
+          <button type="button" className="btn-primary btn-sm" disabled={busy} onClick={() => void markTodoDone()}>
             Mark done
           </button>
           <a className="btn-ghost btn-sm" href="/todos">
@@ -130,51 +170,30 @@ function ItemCard({
           </a>
         </div>
       )}
-
       {item.kind === 'appointment' && past && (
-        <div style={{ marginTop: '0.75rem' }}>
-          {editingNotes ? (
-            <div className="stack">
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="What came out of this visit — findings, changes, follow-ups."
-                rows={4}
-                autoFocus
-              />
-              <div className="btn-row">
-                <button type="button" className="btn-primary btn-sm" disabled={busy} onClick={() => void saveVisitNotes()}>
-                  {busy ? 'Saving…' : 'Save'}
-                </button>
-                <button
-                  type="button"
-                  className="btn-ghost btn-sm"
-                  disabled={busy}
-                  onClick={() => {
-                    setNotes(item.notes ?? '')
-                    setEditingNotes(false)
-                  }}
-                >
-                  Cancel
-                </button>
-              </div>
+        editingNotes ? (
+          <div className="stack">
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="What came out of this visit — findings, changes, follow-ups."
+              rows={4}
+              autoFocus
+            />
+            <div className="btn-row">
+              <button type="button" className="btn-primary btn-sm" disabled={busy} onClick={() => void saveVisitNotes()}>
+                {busy ? 'Saving…' : 'Save'}
+              </button>
+              <button type="button" className="btn-ghost btn-sm" disabled={busy} onClick={() => setEditingNotes(false)}>
+                Cancel
+              </button>
             </div>
-          ) : item.notes ? (
-            <div className="callout">
-              <div className="row-between">
-                <strong>Visit notes</strong>
-                <button type="button" className="btn-ghost btn-sm" onClick={() => setEditingNotes(true)}>
-                  Edit
-                </button>
-              </div>
-              <p>{item.notes}</p>
-            </div>
-          ) : (
-            <button type="button" className="btn-ghost btn-sm" onClick={() => setEditingNotes(true)}>
-              Add visit notes
-            </button>
-          )}
-        </div>
+          </div>
+        ) : (
+          <button type="button" className="btn-ghost btn-sm" onClick={() => setEditingNotes(true)}>
+            {item.notes ? 'Edit visit notes' : 'Add visit notes'}
+          </button>
+        )
       )}
     </div>
   )
@@ -231,13 +250,7 @@ function AppointmentForm({ onDone }: { onDone: (synced: boolean) => void }) {
       <div className="form-grid">
         <label className="field">
           <span>Title</span>
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Endocrinology follow-up"
-            autoFocus
-          />
+          <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Endocrinology follow-up" autoFocus />
         </label>
         <label className="field">
           <span>Type</span>
@@ -262,7 +275,6 @@ function AppointmentForm({ onDone }: { onDone: (synced: boolean) => void }) {
           <input type="text" value={location} onChange={(e) => setLocation(e.target.value)} />
         </label>
       </div>
-
       <label className="field">
         <span>Prep notes (optional)</span>
         <textarea
@@ -272,9 +284,7 @@ function AppointmentForm({ onDone }: { onDone: (synced: boolean) => void }) {
           rows={3}
         />
       </label>
-
       {error && <p className="field-error">{error}</p>}
-
       <div className="form-actions">
         <button type="submit" className="btn-primary" disabled={busy}>
           {busy ? 'Saving…' : 'Add appointment'}
@@ -284,49 +294,285 @@ function AppointmentForm({ onDone }: { onDone: (synced: boolean) => void }) {
   )
 }
 
-function Agenda({
+function EventChip({ item, onSelect }: { item: CalendarItem; onSelect: (item: CalendarItem) => void }) {
+  const time = item.allDay
+    ? 'All day'
+    : new Date(item.startsAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  return (
+    <button
+      type="button"
+      className={`cal-event kind-${item.kind}`}
+      onClick={() => onSelect(item)}
+      title={`${item.title} · ${time}`}
+    >
+      <span className="cal-event-time">{time}</span>
+      <span className="cal-event-title">{item.title}</span>
+    </button>
+  )
+}
+
+function MonthView({
+  cursor,
+  byDay,
+  onSelectDay,
+  onSelectItem,
+}: {
+  cursor: Date
+  byDay: Map<string, CalendarItem[]>
+  onSelectDay: (d: Date) => void
+  onSelectItem: (item: CalendarItem) => void
+}) {
+  const today = startOfDay(new Date())
+  const first = startOfMonth(cursor)
+  const gridStart = startOfWeek(first)
+  const cells = Array.from({ length: 42 }, (_, i) => addDays(gridStart, i))
+
+  return (
+    <div className="cal-month">
+      <div className="cal-month-head">
+        {WEEKDAYS.map((d) => (
+          <div key={d} className="cal-month-dow">
+            {d}
+          </div>
+        ))}
+      </div>
+      <div className="cal-month-grid">
+        {cells.map((day) => {
+          const key = dayKey(day)
+          const items = byDay.get(key) ?? []
+          const inMonth = day.getMonth() === cursor.getMonth()
+          const isToday = sameDay(day, today)
+          return (
+            <div
+              key={key}
+              className={`cal-month-cell ${inMonth ? '' : 'outside'} ${isToday ? 'today' : ''}`}
+            >
+              <button type="button" className="cal-month-date" onClick={() => onSelectDay(day)}>
+                {day.getDate()}
+              </button>
+              <div className="cal-month-events">
+                {items.slice(0, 3).map((item) => (
+                  <EventChip key={`${item.kind}-${item.id}`} item={item} onSelect={onSelectItem} />
+                ))}
+                {items.length > 3 && (
+                  <button type="button" className="cal-more" onClick={() => onSelectDay(day)}>
+                    +{items.length - 3} more
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function WeekView({
+  cursor,
+  byDay,
+  onSelectItem,
+}: {
+  cursor: Date
+  byDay: Map<string, CalendarItem[]>
+  onSelectItem: (item: CalendarItem) => void
+}) {
+  const today = startOfDay(new Date())
+  const weekStart = startOfWeek(cursor)
+  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+
+  return (
+    <div className="cal-week">
+      <div className="cal-week-head">
+        <div className="cal-gutter" />
+        {days.map((day) => (
+          <div key={dayKey(day)} className={`cal-week-dayhead ${sameDay(day, today) ? 'today' : ''}`}>
+            <div className="cal-week-dow">{WEEKDAYS[day.getDay()]}</div>
+            <div className="cal-week-dom">{day.getDate()}</div>
+          </div>
+        ))}
+      </div>
+      <div className="cal-week-allday">
+        <div className="cal-gutter muted">All day</div>
+        {days.map((day) => {
+          const items = (byDay.get(dayKey(day)) ?? []).filter((i) => i.allDay)
+          return (
+            <div key={dayKey(day)} className="cal-week-allday-cell">
+              {items.map((item) => (
+                <EventChip key={`${item.kind}-${item.id}`} item={item} onSelect={onSelectItem} />
+              ))}
+            </div>
+          )
+        })}
+      </div>
+      <div className="cal-week-body">
+        {HOURS.map((hour) => (
+          <div key={hour} className="cal-week-row">
+            <div className="cal-gutter muted">{formatHour(hour)}</div>
+            {days.map((day) => {
+              const items = (byDay.get(dayKey(day)) ?? []).filter((i) => !i.allDay && itemHour(i) === hour)
+              return (
+                <div key={dayKey(day)} className="cal-week-cell">
+                  {items.map((item) => (
+                    <EventChip key={`${item.kind}-${item.id}`} item={item} onSelect={onSelectItem} />
+                  ))}
+                </div>
+              )
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function DayView({
+  cursor,
+  byDay,
+  onSelectItem,
+}: {
+  cursor: Date
+  byDay: Map<string, CalendarItem[]>
+  onSelectItem: (item: CalendarItem) => void
+}) {
+  const items = byDay.get(dayKey(cursor)) ?? []
+  const allDay = items.filter((i) => i.allDay)
+  const timed = items.filter((i) => !i.allDay)
+
+  return (
+    <div className="cal-day">
+      {allDay.length > 0 && (
+        <div className="cal-day-allday">
+          <div className="cal-gutter muted">All day</div>
+          <div className="cal-day-allday-list">
+            {allDay.map((item) => (
+              <EventChip key={`${item.kind}-${item.id}`} item={item} onSelect={onSelectItem} />
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="cal-day-body">
+        {HOURS.map((hour) => {
+          const hourItems = timed.filter((i) => itemHour(i) === hour)
+          return (
+            <div key={hour} className="cal-day-row">
+              <div className="cal-gutter muted">{formatHour(hour)}</div>
+              <div className="cal-day-cell">
+                {hourItems.map((item) => (
+                  <EventChip key={`${item.kind}-${item.id}`} item={item} onSelect={onSelectItem} />
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      {items.length === 0 && <p className="hint cal-empty">Nothing scheduled for this day.</p>}
+    </div>
+  )
+}
+
+function CalendarBoard({
   items,
-  past,
   filter,
   onChanged,
 }: {
   items: CalendarItem[]
-  past: boolean
-  filter: Kind
+  filter: KindFilter
   onChanged: () => void
 }) {
+  const [view, setView] = useState<ViewMode>('month')
+  const [cursor, setCursor] = useState(() => startOfDay(new Date()))
+  const [selected, setSelected] = useState<CalendarItem | null>(null)
+
   const filtered = useMemo(
     () => (filter === 'all' ? items : items.filter((i) => i.kind === filter)),
     [items, filter],
   )
 
-  const groups = useMemo(() => {
+  const byDay = useMemo(() => {
     const map = new Map<string, CalendarItem[]>()
     for (const item of filtered) {
-      const key = dayKey(item.startsAt)
+      const key = itemDayKey(item)
       const list = map.get(key) ?? []
       list.push(item)
       map.set(key, list)
     }
-    return [...map.entries()]
+    for (const list of map.values()) {
+      list.sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt))
+    }
+    return map
   }, [filtered])
 
-  if (filtered.length === 0) {
-    return <p className="hint">{past ? 'Nothing in the recent past.' : 'Nothing upcoming in this view.'}</p>
+  function shift(delta: number) {
+    setCursor((c) => {
+      if (view === 'month') return new Date(c.getFullYear(), c.getMonth() + delta, 1)
+      if (view === 'week') return addDays(c, delta * 7)
+      return addDays(c, delta)
+    })
   }
 
   return (
-    <div className="stack">
-      {groups.map(([key, dayItems]) => (
-        <section key={key}>
-          <h3 className="calendar-day">{dayHeading(dayItems[0]!.startsAt)}</h3>
-          <div className="stack">
-            {dayItems.map((item) => (
-              <ItemCard key={`${item.kind}-${item.id}`} item={item} past={past} onChanged={onChanged} />
-            ))}
-          </div>
-        </section>
-      ))}
+    <div className="cal-board">
+      <div className="cal-toolbar">
+        <div className="btn-row">
+          <button type="button" className="btn-ghost btn-sm" onClick={() => shift(-1)} aria-label="Previous">
+            ‹
+          </button>
+          <button type="button" className="btn-ghost btn-sm" onClick={() => setCursor(startOfDay(new Date()))}>
+            Today
+          </button>
+          <button type="button" className="btn-ghost btn-sm" onClick={() => shift(1)} aria-label="Next">
+            ›
+          </button>
+        </div>
+        <h2 className="cal-range-label">{rangeLabel(view, cursor)}</h2>
+        <div className="btn-row calendar-filters">
+          {(
+            [
+              ['day', 'Day'],
+              ['week', 'Week'],
+              ['month', 'Month'],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={view === value ? 'chip active' : 'chip'}
+              onClick={() => setView(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {view === 'month' && (
+        <MonthView
+          cursor={cursor}
+          byDay={byDay}
+          onSelectDay={(d) => {
+            setCursor(d)
+            setView('day')
+          }}
+          onSelectItem={setSelected}
+        />
+      )}
+      {view === 'week' && <WeekView cursor={cursor} byDay={byDay} onSelectItem={setSelected} />}
+      {view === 'day' && <DayView cursor={cursor} byDay={byDay} onSelectItem={setSelected} />}
+
+      <Modal
+        open={Boolean(selected)}
+        title={selected?.title ?? 'Event'}
+        onClose={() => setSelected(null)}
+      >
+        {selected && (
+          <EventDetail
+            item={selected}
+            onChanged={onChanged}
+            onClose={() => setSelected(null)}
+          />
+        )}
+      </Modal>
     </div>
   )
 }
@@ -335,7 +581,7 @@ export default function CalendarPage() {
   const toast = useToast()
   const [open, setOpen] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
-  const [filter, setFilter] = useState<Kind>('all')
+  const [filter, setFilter] = useState<KindFilter>('all')
   const refetch = () => setReloadKey((k) => k + 1)
 
   useEffect(() => {
@@ -350,7 +596,7 @@ export default function CalendarPage() {
 
   return (
     <AppGate>
-      <main>
+      <main className="calendar-page">
         <div className="page-header">
           <div>
             <h1>Calendar</h1>
@@ -364,60 +610,53 @@ export default function CalendarPage() {
         </div>
 
         <Loaded<CalendarPayload> key={reloadKey} path="/api/calendar">
-          {(d) => (
-            <>
-              <div className="card calendar-google-card">
-                <div className="row-between">
+          {(d) => {
+            const allItems = [...d.upcoming, ...d.past]
+            return (
+              <>
+                <div className="calendar-google-bar">
                   <div>
                     <strong>Google Calendar</strong>
-                    <p className="hint" style={{ margin: '0.25rem 0 0' }}>
+                    <span className="muted">
                       {d.google.connected
-                        ? 'Connected — events from your primary calendar appear below. New appointments sync out automatically.'
-                        : 'Connect to see Google events here and sync new appointments to your phone calendar.'}
-                    </p>
-                    {d.google.error && <p className="field-error">{d.google.error}</p>}
+                        ? ' — connected; new appointments sync automatically.'
+                        : ' — connect to show Google events and sync new appointments.'}
+                    </span>
+                    {d.google.error && <span className="field-error"> {d.google.error}</span>}
                   </div>
                   {d.google.connected ? (
                     <span className="pill">Connected</span>
                   ) : (
-                    <a className="btn-secondary" href="/auth/google/connect/calendar">
-                      Connect Google Calendar
+                    <a className="btn-secondary btn-sm" href="/auth/google/connect/calendar">
+                      Connect
                     </a>
                   )}
                 </div>
-              </div>
 
-              <div className="btn-row calendar-filters">
-                {(
-                  [
-                    ['all', 'All'],
-                    ['appointment', 'Appointments'],
-                    ['todo', 'To Dos'],
-                    ['google', 'Google'],
-                  ] as const
-                ).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    className={filter === value ? 'chip active' : 'chip'}
-                    onClick={() => setFilter(value)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+                <div className="btn-row calendar-filters">
+                  {(
+                    [
+                      ['all', 'All'],
+                      ['appointment', 'Appointments'],
+                      ['todo', 'To Dos'],
+                      ['google', 'Google'],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={filter === value ? 'chip active' : 'chip'}
+                      onClick={() => setFilter(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
 
-              <section>
-                <h2>Upcoming</h2>
-                <Agenda items={d.upcoming} past={false} filter={filter} onChanged={refetch} />
-              </section>
-
-              <section>
-                <h2>Recent</h2>
-                <Agenda items={d.past} past filter={filter} onChanged={refetch} />
-              </section>
-            </>
-          )}
+                <CalendarBoard items={allItems} filter={filter} onChanged={refetch} />
+              </>
+            )
+          }}
         </Loaded>
 
         <Modal open={open} title="Add appointment" onClose={() => setOpen(false)} wide>
