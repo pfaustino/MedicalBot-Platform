@@ -3,7 +3,7 @@ import { config, openRouterConfigured as envOpenRouterConfigured } from '../conf
 import { db, schema } from '../db/index.js'
 import { decrypt, encrypt } from './crypto.js'
 
-export type OpenRouterTaskClass = 'chat' | 'extract' | 'analyze' | 'vision'
+export type OpenRouterTaskClass = 'chat' | 'extract' | 'analyze' | 'vision' | 'tts' | 'stt'
 
 export const DEFAULT_OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 export const DEFAULT_MODELS = {
@@ -11,12 +11,16 @@ export const DEFAULT_MODELS = {
   extract: 'anthropic/claude-haiku-4.5',
   analyze: 'anthropic/claude-sonnet-4.5',
   vision: 'anthropic/claude-sonnet-4.5',
+  tts: 'openai/gpt-4o-mini-tts',
+  stt: 'openai/whisper-large-v3',
 } as const
+export const DEFAULT_TTS_VOICE = 'alloy'
 
 export interface ResolvedOpenRouterSettings {
   apiKey: string | null
   baseUrl: string
   models: Record<OpenRouterTaskClass, string>
+  ttsVoice: string
 }
 
 export interface OpenRouterSettingsView {
@@ -28,12 +32,18 @@ export interface OpenRouterSettingsView {
   modelExtract: string
   modelAnalyze: string
   modelVision: string
+  modelTts: string
+  modelStt: string
+  ttsVoice: string
   userOverrides: {
     baseUrl: boolean
     modelChat: boolean
     modelExtract: boolean
     modelAnalyze: boolean
     modelVision: boolean
+    modelTts: boolean
+    modelStt: boolean
+    ttsVoice: boolean
   }
 }
 
@@ -44,6 +54,9 @@ type ProfileAiRow = {
   openrouterModelExtract: string | null
   openrouterModelAnalyze: string | null
   openrouterModelVision: string | null
+  openrouterModelTts: string | null
+  openrouterModelStt: string | null
+  openrouterTtsVoice: string | null
 }
 
 export function openRouterKeyHint(key: string): string {
@@ -73,6 +86,9 @@ async function loadProfileAiRow(userId: string): Promise<ProfileAiRow | null> {
       openrouterModelExtract: schema.profiles.openrouterModelExtract,
       openrouterModelAnalyze: schema.profiles.openrouterModelAnalyze,
       openrouterModelVision: schema.profiles.openrouterModelVision,
+      openrouterModelTts: schema.profiles.openrouterModelTts,
+      openrouterModelStt: schema.profiles.openrouterModelStt,
+      openrouterTtsVoice: schema.profiles.openrouterTtsVoice,
     })
     .from(schema.profiles)
     .where(eq(schema.profiles.userId, userId))
@@ -104,6 +120,9 @@ export async function getOpenRouterSettings(userId: string): Promise<ResolvedOpe
   const extract = pickString(row?.openrouterModelExtract, config.MODEL_EXTRACT, DEFAULT_MODELS.extract)
   const analyze = pickString(row?.openrouterModelAnalyze, config.MODEL_ANALYZE, DEFAULT_MODELS.analyze)
   const vision = pickString(row?.openrouterModelVision, config.MODEL_VISION, DEFAULT_MODELS.vision)
+  const tts = pickString(row?.openrouterModelTts, config.MODEL_TTS, DEFAULT_MODELS.tts)
+  const stt = pickString(row?.openrouterModelStt, config.MODEL_STT, DEFAULT_MODELS.stt)
+  const ttsVoice = pickString(row?.openrouterTtsVoice, config.TTS_VOICE, DEFAULT_TTS_VOICE)
 
   return {
     apiKey: key,
@@ -113,7 +132,10 @@ export async function getOpenRouterSettings(userId: string): Promise<ResolvedOpe
       extract: extract.value,
       analyze: analyze.value,
       vision: vision.value,
+      tts: tts.value,
+      stt: stt.value,
     },
+    ttsVoice: ttsVoice.value,
   }
 }
 
@@ -136,12 +158,18 @@ export async function getOpenRouterSettingsView(userId: string): Promise<OpenRou
     modelExtract: settings.models.extract,
     modelAnalyze: settings.models.analyze,
     modelVision: settings.models.vision,
+    modelTts: settings.models.tts,
+    modelStt: settings.models.stt,
+    ttsVoice: settings.ttsVoice,
     userOverrides: {
       baseUrl: Boolean(row?.openrouterBaseUrl?.trim()),
       modelChat: Boolean(row?.openrouterModelChat?.trim()),
       modelExtract: Boolean(row?.openrouterModelExtract?.trim()),
       modelAnalyze: Boolean(row?.openrouterModelAnalyze?.trim()),
       modelVision: Boolean(row?.openrouterModelVision?.trim()),
+      modelTts: Boolean(row?.openrouterModelTts?.trim()),
+      modelStt: Boolean(row?.openrouterModelStt?.trim()),
+      ttsVoice: Boolean(row?.openrouterTtsVoice?.trim()),
     },
   }
 }
@@ -153,6 +181,9 @@ export interface SaveOpenRouterSettingsInput {
   modelExtract?: string | null
   modelAnalyze?: string | null
   modelVision?: string | null
+  modelTts?: string | null
+  modelStt?: string | null
+  ttsVoice?: string | null
 }
 
 function nullableTrim(value: string | null | undefined): string | null {
@@ -177,6 +208,9 @@ export async function saveOpenRouterSettings(
   if (input.modelExtract !== undefined) set.openrouterModelExtract = nullableTrim(input.modelExtract)
   if (input.modelAnalyze !== undefined) set.openrouterModelAnalyze = nullableTrim(input.modelAnalyze)
   if (input.modelVision !== undefined) set.openrouterModelVision = nullableTrim(input.modelVision)
+  if (input.modelTts !== undefined) set.openrouterModelTts = nullableTrim(input.modelTts)
+  if (input.modelStt !== undefined) set.openrouterModelStt = nullableTrim(input.modelStt)
+  if (input.ttsVoice !== undefined) set.openrouterTtsVoice = nullableTrim(input.ttsVoice)
 
   await db.update(schema.profiles).set(set).where(eq(schema.profiles.userId, userId))
 }

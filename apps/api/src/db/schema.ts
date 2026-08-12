@@ -73,6 +73,9 @@ export const profiles = pgTable('profiles', {
   openrouterModelExtract: text('openrouter_model_extract'),
   openrouterModelAnalyze: text('openrouter_model_analyze'),
   openrouterModelVision: text('openrouter_model_vision'),
+  openrouterModelTts: text('openrouter_model_tts'),
+  openrouterModelStt: text('openrouter_model_stt'),
+  openrouterTtsVoice: text('openrouter_tts_voice'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 

@@ -283,6 +283,10 @@ h3 {
   margin: 1.25rem 0 0.5rem;
 }
 
+.settings-subhead {
+  margin-top: 0.25rem;
+}
+
 .stack > * + * {
   margin-top: 1rem;
 }
@@ -1128,6 +1132,45 @@ textarea.field-error-input {
 
 .combobox {
   position: relative;
+}
+
+.combobox-trigger {
+  display: flex;
+  align-items: stretch;
+}
+
+.combobox-trigger input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.combobox-chevron {
+  flex: 0 0 auto;
+  width: 2.25rem;
+  border: 1px solid var(--border);
+  border-left: none;
+  border-radius: 0 0.375rem 0.375rem 0;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.combobox-chevron:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--accent-weak);
+}
+
+.combobox-chevron:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.combobox-option.selected .combobox-option-label {
+  font-weight: 600;
 }
 
 .combobox-list {

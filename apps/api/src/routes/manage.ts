@@ -83,6 +83,9 @@ export async function manageRoutes(app: FastifyInstance): Promise<void> {
     modelExtract: z.string().min(1).max(200).nullable().optional(),
     modelAnalyze: z.string().min(1).max(200).nullable().optional(),
     modelVision: z.string().min(1).max(200).nullable().optional(),
+    modelTts: z.string().min(1).max(200).nullable().optional(),
+    modelStt: z.string().min(1).max(200).nullable().optional(),
+    ttsVoice: z.string().min(1).max(60).nullable().optional(),
   })
 
   app.put('/settings/ai', async (request, reply) => {
@@ -98,7 +101,10 @@ export async function manageRoutes(app: FastifyInstance): Promise<void> {
       b.modelChat === undefined &&
       b.modelExtract === undefined &&
       b.modelAnalyze === undefined &&
-      b.modelVision === undefined
+      b.modelVision === undefined &&
+      b.modelTts === undefined &&
+      b.modelStt === undefined &&
+      b.ttsVoice === undefined
     ) {
       return reply.code(400).send({ error: 'Nothing to update' })
     }

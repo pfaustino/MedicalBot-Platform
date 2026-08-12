@@ -256,14 +256,35 @@ interface AiSettings {
   modelExtract: string
   modelAnalyze: string
   modelVision: string
+  modelTts: string
+  modelStt: string
+  ttsVoice: string
   userOverrides: {
     baseUrl: boolean
     modelChat: boolean
     modelExtract: boolean
     modelAnalyze: boolean
     modelVision: boolean
+    modelTts: boolean
+    modelStt: boolean
+    ttsVoice: boolean
   }
 }
+
+const TTS_VOICES = [
+  { id: 'alloy', label: 'Alloy' },
+  { id: 'echo', label: 'Echo' },
+  { id: 'fable', label: 'Fable' },
+  { id: 'onyx', label: 'Onyx' },
+  { id: 'nova', label: 'Nova' },
+  { id: 'shimmer', label: 'Shimmer' },
+  { id: 'coral', label: 'Coral' },
+  { id: 'verse', label: 'Verse' },
+  { id: 'ballad', label: 'Ballad' },
+  { id: 'ash', label: 'Ash' },
+  { id: 'sage', label: 'Sage' },
+  { id: 'marin', label: 'Marin' },
+]
 
 function OpenRouterSettings() {
   const toast = useToast()
@@ -275,6 +296,9 @@ function OpenRouterSettings() {
   const [modelExtract, setModelExtract] = useState('')
   const [modelAnalyze, setModelAnalyze] = useState('')
   const [modelVision, setModelVision] = useState('')
+  const [modelTts, setModelTts] = useState('')
+  const [modelStt, setModelStt] = useState('')
+  const [ttsVoice, setTtsVoice] = useState('alloy')
   const [busy, setBusy] = useState(false)
 
   const load = () =>
@@ -285,6 +309,9 @@ function OpenRouterSettings() {
       setModelExtract(d.ai.modelExtract)
       setModelAnalyze(d.ai.modelAnalyze)
       setModelVision(d.ai.modelVision)
+      setModelTts(d.ai.modelTts)
+      setModelStt(d.ai.modelStt)
+      setTtsVoice(d.ai.ttsVoice)
       setLoaded(true)
     })
 
@@ -307,6 +334,9 @@ function OpenRouterSettings() {
         modelExtract: modelExtract.trim() || null,
         modelAnalyze: modelAnalyze.trim() || null,
         modelVision: modelVision.trim() || null,
+        modelTts: modelTts.trim() || null,
+        modelStt: modelStt.trim() || null,
+        ttsVoice: ttsVoice.trim() || null,
       }
       const trimmedKey = apiKey.trim()
       if (trimmedKey.length >= 8) body.apiKey = trimmedKey
@@ -343,9 +373,9 @@ function OpenRouterSettings() {
         <div>
           <strong>OpenRouter</strong>
           <p className="help-text">
-            Powers the assistant and document import. Your API key is encrypted at rest and never
-            shown again after saving. Model and URL settings fall back to server defaults when
-            left blank.{' '}
+            Powers the assistant, document import, and voice (mic + spoken replies). Your API key
+            is encrypted at rest and never shown again after saving. Model and URL settings fall
+            back to server defaults when left blank.{' '}
             <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">
               Get a key at openrouter.ai
             </a>
@@ -393,7 +423,8 @@ function OpenRouterSettings() {
             label="Chat model"
             value={modelChat}
             onChange={setModelChat}
-            placeholder="anthropic/claude-sonnet-4.5"
+            placeholder="Search chat models…"
+            kind="text"
             modelsAvailable={status?.configured ?? false}
             disabled={!loaded || busy}
           />
@@ -401,7 +432,8 @@ function OpenRouterSettings() {
             label="Extract model"
             value={modelExtract}
             onChange={setModelExtract}
-            placeholder="anthropic/claude-haiku-4.5"
+            placeholder="Search extract models…"
+            kind="text"
             modelsAvailable={status?.configured ?? false}
             disabled={!loaded || busy}
           />
@@ -409,7 +441,8 @@ function OpenRouterSettings() {
             label="Analyze model"
             value={modelAnalyze}
             onChange={setModelAnalyze}
-            placeholder="anthropic/claude-sonnet-4.5"
+            placeholder="Search analyze models…"
+            kind="text"
             modelsAvailable={status?.configured ?? false}
             disabled={!loaded || busy}
           />
@@ -417,10 +450,47 @@ function OpenRouterSettings() {
             label="Vision model"
             value={modelVision}
             onChange={setModelVision}
-            placeholder="anthropic/claude-sonnet-4.5"
+            placeholder="Search vision models…"
+            kind="text"
             modelsAvailable={status?.configured ?? false}
             disabled={!loaded || busy}
           />
+        </div>
+
+        <h3 className="settings-subhead">Voice</h3>
+        <p className="help-text">
+          Used by the assistant Mic (speech-to-text) and Speak (text-to-speech) buttons.
+        </p>
+        <div className="form-grid">
+          <ModelPicker
+            label="Speech model (TTS)"
+            value={modelTts}
+            onChange={setModelTts}
+            placeholder="Search speech models…"
+            kind="speech"
+            modelsAvailable={status?.configured ?? false}
+            disabled={!loaded || busy}
+          />
+          <ModelPicker
+            label="Transcription model (STT)"
+            value={modelStt}
+            onChange={setModelStt}
+            placeholder="Search transcription models…"
+            kind="transcription"
+            modelsAvailable={status?.configured ?? false}
+            disabled={!loaded || busy}
+          />
+          <label className="field">
+            <span>Voice</span>
+            <select value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)} disabled={!loaded || busy}>
+              {TTS_VOICES.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.label}
+                </option>
+              ))}
+            </select>
+            {status?.userOverrides.ttsVoice && <p className="help-text">Using your saved voice.</p>}
+          </label>
         </div>
 
         {!status?.configured && (

@@ -11,6 +11,7 @@ import {
   fetchOpenRouterModels,
   filterOpenRouterModels,
   OpenRouterModelsError,
+  type ModelKind,
 } from '../lib/openrouter-models.js'
 import { getOpenRouterSettings, getOpenRouterSettingsView } from '../lib/openrouter-settings.js'
 import { requireUser } from './auth.js'
@@ -57,9 +58,12 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const q = String((request.query as { q?: string }).q ?? '')
+    const kindRaw = String((request.query as { kind?: string }).kind ?? 'text')
+    const kind: ModelKind =
+      kindRaw === 'speech' || kindRaw === 'transcription' ? kindRaw : 'text'
     try {
       const all = await fetchOpenRouterModels(settings.apiKey, settings.baseUrl)
-      const models = filterOpenRouterModels(all, q)
+      const models = filterOpenRouterModels(all, q, kind)
       return reply.send({ models })
     } catch (err) {
       if (err instanceof OpenRouterModelsError) {

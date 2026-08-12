@@ -1,11 +1,6 @@
 import { config } from '../config.js'
-import { getOpenRouterSettings } from '../lib/openrouter-settings.js'
+import { getOpenRouterSettings, type ResolvedOpenRouterSettings } from '../lib/openrouter-settings.js'
 import { OpenRouterError } from './openrouter.js'
-
-/** Defaults for OpenRouter audio endpoints (override via env). */
-export const DEFAULT_TTS_MODEL = 'openai/gpt-4o-mini-tts'
-export const DEFAULT_STT_MODEL = 'openai/whisper-large-v3'
-export const DEFAULT_TTS_VOICE = 'alloy'
 
 function audioHeaders(apiKey: string): Record<string, string> {
   return {
@@ -16,12 +11,14 @@ function audioHeaders(apiKey: string): Record<string, string> {
   }
 }
 
-async function requireKey(userId: string): Promise<{ apiKey: string; baseUrl: string }> {
+async function requireSettings(
+  userId: string,
+): Promise<ResolvedOpenRouterSettings & { apiKey: string }> {
   const settings = await getOpenRouterSettings(userId)
   if (!settings.apiKey) {
     throw new OpenRouterError('OpenRouter API key is not configured', 500, '')
   }
-  return { apiKey: settings.apiKey, baseUrl: settings.baseUrl }
+  return { ...settings, apiKey: settings.apiKey }
 }
 
 /** Text → spoken audio (raw bytes). Uses the same OpenRouter key as chat. */
@@ -31,14 +28,14 @@ export async function synthesizeSpeech(options: {
   voice?: string
   responseFormat?: 'mp3' | 'pcm'
 }): Promise<{ bytes: Buffer; contentType: string; model: string }> {
-  const { apiKey, baseUrl } = await requireKey(options.userId)
-  const model = config.MODEL_TTS
-  const voice = options.voice?.trim() || config.TTS_VOICE
+  const settings = await requireSettings(options.userId)
+  const model = settings.models.tts
+  const voice = options.voice?.trim() || settings.ttsVoice
   const responseFormat = options.responseFormat ?? 'mp3'
 
-  const response = await fetch(`${baseUrl}/audio/speech`, {
+  const response = await fetch(`${settings.baseUrl}/audio/speech`, {
     method: 'POST',
-    headers: audioHeaders(apiKey),
+    headers: audioHeaders(settings.apiKey),
     body: JSON.stringify({
       model,
       input: options.input,
@@ -72,8 +69,8 @@ export async function transcribeAudio(options: {
   format: string
   language?: string
 }): Promise<{ text: string; model: string }> {
-  const { apiKey, baseUrl } = await requireKey(options.userId)
-  const model = config.MODEL_STT
+  const settings = await requireSettings(options.userId)
+  const model = settings.models.stt
 
   const body: Record<string, unknown> = {
     model,
@@ -84,9 +81,9 @@ export async function transcribeAudio(options: {
   }
   if (options.language) body.language = options.language
 
-  const response = await fetch(`${baseUrl}/audio/transcriptions`, {
+  const response = await fetch(`${settings.baseUrl}/audio/transcriptions`, {
     method: 'POST',
-    headers: audioHeaders(apiKey),
+    headers: audioHeaders(settings.apiKey),
     body: JSON.stringify(body),
   })
 
