@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { apiGet, apiPatch, apiPost, apiPut, apiDelete } from '@/lib/api'
+import { useEffect, useRef, useState } from 'react'
+import { apiErrorMessage, apiGet, apiPatch, apiPost, apiPostBlob, apiPut, apiDelete, ApiError } from '@/lib/api'
 import { AppGate } from '../components/AppGate'
 import { useToast } from '../components/Toast'
 import { ModelPicker } from '../components/ModelPicker'
@@ -300,6 +300,8 @@ function OpenRouterSettings() {
   const [modelStt, setModelStt] = useState('')
   const [ttsVoice, setTtsVoice] = useState('alloy')
   const [busy, setBusy] = useState(false)
+  const [previewing, setPreviewing] = useState(false)
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null)
 
   const load = () =>
     apiGet<{ ai: AiSettings }>('/api/settings/ai').then((d) => {
@@ -365,6 +367,54 @@ function OpenRouterSettings() {
       setBusy(false)
     }
   }
+
+  function stopPreview() {
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause()
+      previewAudioRef.current = null
+    }
+    setPreviewing(false)
+  }
+
+  async function previewVoice() {
+    if (!status?.configured || previewing) {
+      if (previewing) stopPreview()
+      return
+    }
+    const voiceLabel = TTS_VOICES.find((v) => v.id === ttsVoice)?.label ?? ttsVoice
+    setPreviewing(true)
+    try {
+      const blob = await apiPostBlob('/api/assistant/speech', {
+        text: `Hi, I'm ${voiceLabel}. This is how I sound when I speak with you.`,
+        voice: ttsVoice,
+        model: modelTts.trim() || undefined,
+      })
+      const url = URL.createObjectURL(blob)
+      const audio = new Audio(url)
+      previewAudioRef.current = audio
+      audio.onended = () => {
+        URL.revokeObjectURL(url)
+        if (previewAudioRef.current === audio) {
+          previewAudioRef.current = null
+          setPreviewing(false)
+        }
+      }
+      audio.onerror = () => {
+        URL.revokeObjectURL(url)
+        toast.show('Could not play the voice preview.', 'err')
+        setPreviewing(false)
+      }
+      await audio.play()
+    } catch (e) {
+      const detail = e instanceof ApiError ? apiErrorMessage(e.body) : null
+      toast.show(detail ?? 'Could not preview that voice.', 'err')
+      setPreviewing(false)
+    }
+  }
+
+  useEffect(() => {
+    return () => stopPreview()
+  }, [])
 
   return (
     <section>
@@ -482,13 +532,23 @@ function OpenRouterSettings() {
           />
           <label className="field">
             <span>Voice</span>
-            <select value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)} disabled={!loaded || busy}>
-              {TTS_VOICES.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.label}
-                </option>
-              ))}
-            </select>
+            <div className="voice-preview-row">
+              <select value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)} disabled={!loaded || busy}>
+                {TTS_VOICES.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                onClick={() => void previewVoice()}
+                disabled={!loaded || busy || !status?.configured}
+              >
+                {previewing ? 'Stop' : 'Preview'}
+              </button>
+            </div>
             {status?.userOverrides.ttsVoice && <p className="help-text">Using your saved voice.</p>}
           </label>
         </div>

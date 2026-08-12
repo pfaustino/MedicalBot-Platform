@@ -287,6 +287,17 @@ h3 {
   margin-top: 0.25rem;
 }
 
+.voice-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.voice-preview-row select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .stack > * + * {
   margin-top: 1rem;
 }

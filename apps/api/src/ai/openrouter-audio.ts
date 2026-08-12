@@ -26,10 +26,11 @@ export async function synthesizeSpeech(options: {
   userId: string
   input: string
   voice?: string
+  model?: string
   responseFormat?: 'mp3' | 'pcm'
 }): Promise<{ bytes: Buffer; contentType: string; model: string }> {
   const settings = await requireSettings(options.userId)
-  const model = settings.models.tts
+  const model = options.model?.trim() || settings.models.tts
   const voice = options.voice?.trim() || settings.ttsVoice
   const responseFormat = options.responseFormat ?? 'mp3'
 

@@ -117,6 +117,7 @@ export async function assistantRoutes(app: FastifyInstance): Promise<void> {
   const speechBody = z.object({
     text: z.string().min(1).max(4000),
     voice: z.string().max(60).optional(),
+    model: z.string().max(200).optional(),
   })
 
   app.post('/assistant/speech', async (request, reply) => {
@@ -138,6 +139,7 @@ export async function assistantRoutes(app: FastifyInstance): Promise<void> {
         userId,
         input: parsed.data.text,
         voice: parsed.data.voice,
+        model: parsed.data.model,
       })
       return reply
         .header('Content-Type', audio.contentType)
