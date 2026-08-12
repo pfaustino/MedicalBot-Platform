@@ -1,9 +1,12 @@
 import type { FastifyInstance } from 'fastify'
 import { and, asc, eq, gte, isNotNull, lte, or } from 'drizzle-orm'
+import { z } from 'zod'
 import { db, schema } from '../db/index.js'
 import {
+  deleteGoogleCalendarEvent,
   getCalendarConnection,
   listGoogleCalendarEvents,
+  updateGoogleCalendarEvent,
 } from '../lib/google.js'
 import { requireUser } from './auth.js'
 
@@ -179,5 +182,53 @@ export async function calendarRoutes(app: FastifyInstance): Promise<void> {
       past: past.reverse(),
       range: { from: pastFrom.toISOString(), to: futureTo.toISOString() },
     })
+  })
+
+  const googleEventBody = z.object({
+    title: z.string().min(1).max(200),
+    startsAt: z.coerce.date(),
+    endsAt: z.coerce.date().nullable().default(null),
+    location: z.string().max(300).nullable().default(null),
+    description: z.string().max(4000).nullable().default(null),
+    allDay: z.boolean().optional().default(false),
+  })
+
+  app.patch('/calendar/google/:eventId', async (request, reply) => {
+    const parsed = googleEventBody.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Invalid event', issues: parsed.error.issues })
+    }
+    const userId = request.session.userId!
+    const { eventId } = request.params as { eventId: string }
+    try {
+      await updateGoogleCalendarEvent(userId, eventId, {
+        title: parsed.data.title,
+        startsAt: parsed.data.startsAt,
+        endsAt: parsed.data.endsAt,
+        location: parsed.data.location,
+        description: parsed.data.description,
+        allDay: parsed.data.allDay,
+      })
+      return reply.send({ ok: true })
+    } catch (err) {
+      request.log.warn({ err }, 'Google Calendar update failed')
+      return reply.code(502).send({
+        error: err instanceof Error ? err.message : 'Could not update Google Calendar event',
+      })
+    }
+  })
+
+  app.delete('/calendar/google/:eventId', async (request, reply) => {
+    const userId = request.session.userId!
+    const { eventId } = request.params as { eventId: string }
+    try {
+      await deleteGoogleCalendarEvent(userId, eventId)
+      return reply.send({ ok: true })
+    } catch (err) {
+      request.log.warn({ err }, 'Google Calendar delete failed')
+      return reply.code(502).send({
+        error: err instanceof Error ? err.message : 'Could not delete Google Calendar event',
+      })
+    }
   })
 }

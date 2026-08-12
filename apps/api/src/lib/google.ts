@@ -226,6 +226,32 @@ export async function listGoogleCalendarEvents(
     .filter((e) => e.startsAt)
 }
 
+function ymdLocal(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function googleEventTimes(event: {
+  startsAt: Date
+  endsAt?: Date | null
+  allDay?: boolean
+}): { start: { date?: string; dateTime?: string }; end: { date?: string; dateTime?: string } } {
+  if (event.allDay) {
+    const startDay = new Date(event.startsAt.getFullYear(), event.startsAt.getMonth(), event.startsAt.getDate())
+    const endExclusive = event.endsAt
+      ? new Date(event.endsAt.getFullYear(), event.endsAt.getMonth(), event.endsAt.getDate())
+      : new Date(startDay.getFullYear(), startDay.getMonth(), startDay.getDate() + 1)
+    if (+endExclusive <= +startDay) {
+      endExclusive.setDate(endExclusive.getDate() + 1)
+    }
+    return { start: { date: ymdLocal(startDay) }, end: { date: ymdLocal(endExclusive) } }
+  }
+  const endAt = event.endsAt ?? new Date(event.startsAt.getTime() + 60 * 60 * 1000)
+  return {
+    start: { dateTime: event.startsAt.toISOString() },
+    end: { dateTime: endAt.toISOString() },
+  }
+}
+
 export async function createGoogleCalendarEvent(
   userId: string,
   event: {
@@ -240,28 +266,7 @@ export async function createGoogleCalendarEvent(
   const token = await getGoogleAccessToken(userId)
   if (!token || !hasCalendarScope(token.scopes)) return null
 
-  const ymd = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-
-  let start: { date?: string; dateTime?: string }
-  let end: { date?: string; dateTime?: string }
-
-  if (event.allDay) {
-    const startDay = new Date(event.startsAt.getFullYear(), event.startsAt.getMonth(), event.startsAt.getDate())
-    // Google all-day end is exclusive.
-    const endExclusive = event.endsAt
-      ? new Date(event.endsAt.getFullYear(), event.endsAt.getMonth(), event.endsAt.getDate())
-      : new Date(startDay.getFullYear(), startDay.getMonth(), startDay.getDate() + 1)
-    if (+endExclusive <= +startDay) {
-      endExclusive.setDate(endExclusive.getDate() + 1)
-    }
-    start = { date: ymd(startDay) }
-    end = { date: ymd(endExclusive) }
-  } else {
-    const endAt = event.endsAt ?? new Date(event.startsAt.getTime() + 60 * 60 * 1000)
-    start = { dateTime: event.startsAt.toISOString() }
-    end = { dateTime: endAt.toISOString() }
-  }
+  const { start, end } = googleEventTimes(event)
 
   const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
     method: 'POST',
@@ -284,6 +289,67 @@ export async function createGoogleCalendarEvent(
 
   const created = (await res.json()) as { id?: string }
   return created.id ?? null
+}
+
+export async function updateGoogleCalendarEvent(
+  userId: string,
+  eventId: string,
+  event: {
+    title: string
+    startsAt: Date
+    endsAt?: Date | null
+    location?: string | null
+    description?: string | null
+    allDay?: boolean
+  },
+): Promise<void> {
+  const token = await getGoogleAccessToken(userId)
+  if (!token || !hasCalendarScope(token.scopes)) {
+    throw new Error('Google Calendar is not connected')
+  }
+
+  const { start, end } = googleEventTimes(event)
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        summary: event.title,
+        location: event.location ?? undefined,
+        description: event.description ?? undefined,
+        start,
+        end,
+      }),
+    },
+  )
+
+  if (!res.ok) {
+    throw new Error(`Google Calendar update failed (${res.status})`)
+  }
+}
+
+export async function deleteGoogleCalendarEvent(userId: string, eventId: string): Promise<void> {
+  const token = await getGoogleAccessToken(userId)
+  if (!token || !hasCalendarScope(token.scopes)) {
+    throw new Error('Google Calendar is not connected')
+  }
+
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`,
+    {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token.accessToken}` },
+    },
+  )
+
+  // 404/410 = already gone — treat as success
+  if (!res.ok && res.status !== 404 && res.status !== 410) {
+    throw new Error(`Google Calendar delete failed (${res.status})`)
+  }
 }
 
 /** Persist tokens after an OAuth exchange (login or incremental connect). */

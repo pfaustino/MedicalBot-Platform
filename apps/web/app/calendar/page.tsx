@@ -5,8 +5,8 @@ import { AppGate } from '../components/AppGate'
 import { Modal } from '../components/Modal'
 import { useToast } from '../components/Toast'
 import { Loaded } from '../components/Loader'
-import { apiPatch, apiPost } from '@/lib/api'
-import { formatDate, formatDateTime, titleCase, APPT_TYPE_LABELS } from '@/lib/format'
+import { apiDelete, apiPatch, apiPost } from '@/lib/api'
+import { titleCase, APPT_TYPE_LABELS } from '@/lib/format'
 
 type KindFilter = 'appointment' | 'todo' | 'google' | 'all'
 type ViewMode = 'day' | 'week' | 'month'
@@ -103,99 +103,247 @@ function rangeLabel(view: ViewMode, cursor: Date): string {
   return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
 }
 
-function EventDetail({ item, onChanged, onClose }: { item: CalendarItem; onChanged: () => void; onClose: () => void }) {
+function EventEditor({
+  item,
+  onChanged,
+  onClose,
+}: {
+  item: CalendarItem
+  onChanged: () => void
+  onClose: () => void
+}) {
   const toast = useToast()
-  const [editingNotes, setEditingNotes] = useState(false)
-  const [notes, setNotes] = useState(item.notes ?? '')
-  const [busy, setBusy] = useState(false)
-  const past = new Date(item.startsAt) < new Date()
+  const start = new Date(item.startsAt)
+  const endRaw = item.endsAt ? new Date(item.endsAt) : new Date(start.getTime() + 60 * 60 * 1000)
+  // Google/all-day exclusive end → inclusive date for the form
+  const endForForm = item.allDay ? addDays(endRaw, -1) : endRaw
 
-  async function saveVisitNotes() {
-    if (item.kind !== 'appointment') return
+  const [title, setTitle] = useState(item.title)
+  const [allDay, setAllDay] = useState(item.allDay)
+  const [startDate, setStartDate] = useState(toDateLocal(start))
+  const [endDate, setEndDate] = useState(toDateLocal(endForForm))
+  const [startDateTime, setStartDateTime] = useState(toDatetimeLocal(start))
+  const [endDateTime, setEndDateTime] = useState(toDatetimeLocal(endRaw))
+  const [location, setLocation] = useState(item.location ?? '')
+  const [description, setDescription] = useState(item.notes ?? '')
+  const [type, setType] = useState(item.type ?? 'office_visit')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function resolveTimes(): { startsAt: Date; endsAt: Date } | null {
+    if (allDay) {
+      if (!startDate || !endDate) {
+        setError('Start and end dates are required.')
+        return null
+      }
+      const startsAt = parseDateLocal(startDate)
+      const endsAt = addDays(parseDateLocal(endDate), 1)
+      if (+endsAt <= +startsAt) {
+        setError('End date cannot be before the start date.')
+        return null
+      }
+      return { startsAt, endsAt }
+    }
+    if (!startDateTime) {
+      setError('A start date and time is required.')
+      return null
+    }
+    const startsAt = new Date(startDateTime)
+    const endsAt = endDateTime ? new Date(endDateTime) : new Date(startsAt.getTime() + 60 * 60 * 1000)
+    if (+endsAt < +startsAt) {
+      setError('End time cannot be before the start time.')
+      return null
+    }
+    return { startsAt, endsAt }
+  }
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault()
+    setError(null)
+    if (!title.trim()) {
+      setError('A title is required.')
+      return
+    }
+    const times = resolveTimes()
+    if (!times) return
+
     setBusy(true)
     try {
-      await apiPatch(`/api/appointments/${item.id}`, { visitNotes: notes })
-      toast.show('Visit notes saved.', 'ok')
-      setEditingNotes(false)
+      if (item.kind === 'appointment') {
+        await apiPatch(`/api/appointments/${item.id}`, {
+          title: title.trim(),
+          type,
+          startsAt: times.startsAt.toISOString(),
+          endsAt: times.endsAt.toISOString(),
+          location: location.trim() || null,
+          prepNotes: description.trim() || null,
+          allDay,
+        })
+      } else if (item.kind === 'todo') {
+        await apiPatch(`/api/todos/${item.id}`, {
+          title: title.trim(),
+          notes: description.trim() || null,
+          dueAt: times.startsAt.toISOString(),
+        })
+      } else {
+        await apiPatch(`/api/calendar/google/${encodeURIComponent(item.id)}`, {
+          title: title.trim(),
+          startsAt: times.startsAt.toISOString(),
+          endsAt: times.endsAt.toISOString(),
+          location: location.trim() || null,
+          description: description.trim() || null,
+          allDay,
+        })
+      }
+      toast.show('Event updated.', 'ok')
       onChanged()
+      onClose()
     } catch {
-      toast.show('Could not save visit notes.', 'err')
+      setError('Could not save changes.')
     } finally {
       setBusy(false)
     }
   }
 
-  async function markTodoDone() {
+  async function markDone() {
     if (item.kind !== 'todo') return
     setBusy(true)
     try {
       await apiPatch(`/api/todos/${item.id}`, { status: 'done' })
-      toast.show('To Do marked done.', 'ok')
+      toast.show('Marked done.', 'ok')
       onChanged()
       onClose()
     } catch {
-      toast.show('Could not update To Do.', 'err')
+      toast.show('Could not mark done.', 'err')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm('Delete this event? This cannot be undone.')) return
+    setBusy(true)
+    try {
+      if (item.kind === 'appointment') {
+        await apiDelete(`/api/appointments/${item.id}`)
+      } else if (item.kind === 'todo') {
+        await apiDelete(`/api/todos/${item.id}`)
+      } else {
+        await apiDelete(`/api/calendar/google/${encodeURIComponent(item.id)}`)
+      }
+      toast.show('Event deleted.', 'ok')
+      onChanged()
+      onClose()
+    } catch {
+      toast.show('Could not delete event.', 'err')
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <div className="stack">
-      <div className="chip-row">
+    <form onSubmit={(e) => void save(e)} className="gcal-form">
+      <div className="chip-row" style={{ marginBottom: '0.75rem' }}>
         <span className={`pill kind-${item.kind}`}>{KIND_LABEL[item.kind]}</span>
         {item.synced && <span className="pill">Synced</span>}
-        {item.type && <span className="pill">{APPT_TYPE_LABELS[item.type] ?? titleCase(item.type)}</span>}
         {item.status && item.status !== 'open' && <span className="pill">{titleCase(item.status)}</span>}
       </div>
-      <p className="muted" style={{ margin: 0 }}>
-        {item.allDay ? formatDate(item.startsAt) : formatDateTime(item.startsAt)}
-        {item.location ? ` · ${item.location}` : ''}
-      </p>
-      {item.notes && <p>{item.notes}</p>}
+
+      <label className="field">
+        <span>Title</span>
+        <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
+      </label>
+
+      {item.kind !== 'todo' && (
+        <label className="field field-inline">
+          <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} />
+          <span>All day</span>
+        </label>
+      )}
+
+      {item.kind === 'todo' ? (
+        <label className="field">
+          <span>Due date</span>
+          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        </label>
+      ) : allDay ? (
+        <div className="form-grid">
+          <label className="field">
+            <span>Start date</span>
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          </label>
+          <label className="field">
+            <span>End date</span>
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          </label>
+        </div>
+      ) : (
+        <div className="form-grid">
+          <label className="field">
+            <span>Start</span>
+            <input type="datetime-local" value={startDateTime} onChange={(e) => setStartDateTime(e.target.value)} />
+          </label>
+          <label className="field">
+            <span>End</span>
+            <input type="datetime-local" value={endDateTime} onChange={(e) => setEndDateTime(e.target.value)} />
+          </label>
+        </div>
+      )}
+
+      {item.kind !== 'todo' && (
+        <label className="field">
+          <span>Location</span>
+          <input type="text" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Add location" />
+        </label>
+      )}
+
+      <label className="field">
+        <span>Description</span>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Add description"
+          rows={3}
+        />
+      </label>
+
+      {item.kind === 'appointment' && (
+        <label className="field">
+          <span>Event type (MedicalBot)</span>
+          <select value={type} onChange={(e) => setType(e.target.value)}>
+            {Object.entries(APPT_TYPE_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      {error && <p className="field-error">{error}</p>}
+
+      <div className="form-actions" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <button type="submit" className="btn-primary" disabled={busy}>
+          {busy ? 'Saving…' : 'Save'}
+        </button>
+        {item.kind === 'todo' && item.status === 'open' && (
+          <button type="button" className="btn-secondary" disabled={busy} onClick={() => void markDone()}>
+            Mark done
+          </button>
+        )}
+        <button type="button" className="btn-danger" disabled={busy} onClick={() => void remove()}>
+          Delete
+        </button>
+      </div>
+
       {item.kind === 'google' && item.htmlLink && (
-        <p>
+        <p className="hint" style={{ marginTop: '0.75rem' }}>
           <a href={item.htmlLink} target="_blank" rel="noreferrer">
             Open in Google Calendar
           </a>
         </p>
       )}
-      {item.kind === 'todo' && item.status === 'open' && (
-        <div className="btn-row">
-          <button type="button" className="btn-primary btn-sm" disabled={busy} onClick={() => void markTodoDone()}>
-            Mark done
-          </button>
-          <a className="btn-ghost btn-sm" href="/todos">
-            Open To Dos
-          </a>
-        </div>
-      )}
-      {item.kind === 'appointment' && past && (
-        editingNotes ? (
-          <div className="stack">
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="What came out of this visit — findings, changes, follow-ups."
-              rows={4}
-              autoFocus
-            />
-            <div className="btn-row">
-              <button type="button" className="btn-primary btn-sm" disabled={busy} onClick={() => void saveVisitNotes()}>
-                {busy ? 'Saving…' : 'Save'}
-              </button>
-              <button type="button" className="btn-ghost btn-sm" disabled={busy} onClick={() => setEditingNotes(false)}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button type="button" className="btn-ghost btn-sm" onClick={() => setEditingNotes(true)}>
-            {item.notes ? 'Edit visit notes' : 'Add visit notes'}
-          </button>
-        )
-      )}
-    </div>
+    </form>
   )
 }
 
@@ -730,7 +878,7 @@ function CalendarBoard({
 
       <Modal open={Boolean(selected)} title={selected?.title ?? 'Event'} onClose={() => setSelected(null)}>
         {selected && (
-          <EventDetail item={selected} onChanged={onChanged} onClose={() => setSelected(null)} />
+          <EventEditor item={selected} onChanged={onChanged} onClose={() => setSelected(null)} />
         )}
       </Modal>
     </div>

@@ -22,7 +22,11 @@ import {
 import { generateModuleConfig } from '../ai/generate-module-config.js'
 import { OpenRouterError, openRouterUserMessage } from '../ai/openrouter.js'
 import { db, schema } from '../db/index.js'
-import { createGoogleCalendarEvent } from '../lib/google.js'
+import {
+  createGoogleCalendarEvent,
+  deleteGoogleCalendarEvent,
+  updateGoogleCalendarEvent,
+} from '../lib/google.js'
 import {
   clearOpenRouterApiKey,
   isOpenRouterConfigured,
@@ -507,9 +511,16 @@ export async function manageRoutes(app: FastifyInstance): Promise<void> {
   })
 
   const appointmentPatch = z.object({
-    visitNotes: z.string().max(4000).nullable().optional(),
-    prepNotes: z.string().max(2000).nullable().optional(),
+    title: z.string().min(1).max(200).optional(),
+    type: z
+      .enum(['office_visit', 'lab', 'imaging', 'therapy', 'injection', 'procedure', 'other'])
+      .optional(),
+    startsAt: z.coerce.date().optional(),
+    endsAt: z.coerce.date().nullable().optional(),
     location: z.string().max(300).nullable().optional(),
+    prepNotes: z.string().max(2000).nullable().optional(),
+    visitNotes: z.string().max(4000).nullable().optional(),
+    allDay: z.boolean().optional(),
   })
 
   app.patch('/appointments/:id', async (request, reply) => {
@@ -519,15 +530,83 @@ export async function manageRoutes(app: FastifyInstance): Promise<void> {
     }
     const userId = request.session.userId!
     const { id } = request.params as { id: string }
+    const patch = parsed.data
+
+    const [existing] = await db
+      .select()
+      .from(schema.appointments)
+      .where(and(eq(schema.appointments.userId, userId), eq(schema.appointments.id, id)))
+      .limit(1)
+    if (!existing) return reply.code(404).send({ error: 'Appointment not found' })
+
     const set: Record<string, unknown> = {}
-    if (parsed.data.visitNotes !== undefined) set.visitNotes = parsed.data.visitNotes
-    if (parsed.data.prepNotes !== undefined) set.prepNotes = parsed.data.prepNotes
-    if (parsed.data.location !== undefined) set.location = parsed.data.location
-    if (Object.keys(set).length === 0) return reply.send({ ok: true })
+    if (patch.title !== undefined) set.title = patch.title
+    if (patch.type !== undefined) set.type = patch.type
+    if (patch.startsAt !== undefined) set.startsAt = patch.startsAt
+    if (patch.endsAt !== undefined) set.endsAt = patch.endsAt
+    if (patch.location !== undefined) set.location = patch.location
+    if (patch.prepNotes !== undefined) set.prepNotes = patch.prepNotes
+    if (patch.visitNotes !== undefined) set.visitNotes = patch.visitNotes
+
+    if (Object.keys(set).length > 0) {
+      await db
+        .update(schema.appointments)
+        .set(set)
+        .where(and(eq(schema.appointments.userId, userId), eq(schema.appointments.id, id)))
+    }
+
+    const next = { ...existing, ...set }
+    const startsAt = next.startsAt as Date
+    const endsAt = (next.endsAt as Date | null) ?? null
+    const allDay =
+      patch.allDay ??
+      (startsAt.getHours() === 0 &&
+        startsAt.getMinutes() === 0 &&
+        !!endsAt &&
+        endsAt.getHours() === 0 &&
+        endsAt.getMinutes() === 0 &&
+        endsAt.getTime() - startsAt.getTime() >= 20 * 60 * 60 * 1000)
+
+    let synced = Boolean(existing.googleEventId)
+    if (existing.googleEventId) {
+      try {
+        await updateGoogleCalendarEvent(userId, existing.googleEventId, {
+          title: String(next.title),
+          startsAt,
+          endsAt,
+          location: (next.location as string | null) ?? null,
+          description: (next.prepNotes as string | null) ?? null,
+          allDay,
+        })
+        synced = true
+      } catch (err) {
+        request.log.warn({ err }, 'Could not update Google Calendar event')
+      }
+    }
+
+    return reply.send({ ok: true, synced })
+  })
+
+  app.delete('/appointments/:id', async (request, reply) => {
+    const userId = request.session.userId!
+    const { id } = request.params as { id: string }
+    const [existing] = await db
+      .select({ googleEventId: schema.appointments.googleEventId })
+      .from(schema.appointments)
+      .where(and(eq(schema.appointments.userId, userId), eq(schema.appointments.id, id)))
+      .limit(1)
+    if (!existing) return reply.code(404).send({ error: 'Appointment not found' })
+
+    if (existing.googleEventId) {
+      try {
+        await deleteGoogleCalendarEvent(userId, existing.googleEventId)
+      } catch (err) {
+        request.log.warn({ err }, 'Could not delete Google Calendar event')
+      }
+    }
 
     await db
-      .update(schema.appointments)
-      .set(set)
+      .delete(schema.appointments)
       .where(and(eq(schema.appointments.userId, userId), eq(schema.appointments.id, id)))
     return reply.send({ ok: true })
   })
