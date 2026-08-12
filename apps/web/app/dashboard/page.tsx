@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { AppGate } from '../components/AppGate'
+import { useAssistant } from '../components/AssistantContext'
 import { Modal } from '../components/Modal'
 import { MetricEntryForm } from '../components/MetricEntryForm'
 import { Tour } from '../components/Tour'
@@ -48,6 +49,7 @@ interface Dashboard {
 export default function DashboardPage() {
   const toast = useToast()
   const me = useMe()
+  const { openAssistant } = useAssistant()
   const [data, setData] = useState<Dashboard | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
@@ -146,11 +148,11 @@ export default function DashboardPage() {
                 <span className="action-title">Calendar</span>
                 <span className="action-sub">Visits, to-dos, and Google events</span>
               </Link>
-              <Link href="/assistant" className="action-card">
+              <button type="button" className="action-card" onClick={openAssistant}>
                 <span className="action-icon">💬</span>
                 <span className="action-title">Chat with the assistant</span>
                 <span className="action-sub">Ask about your tracked patterns</span>
-              </Link>
+              </button>
             </div>
 
             <section>

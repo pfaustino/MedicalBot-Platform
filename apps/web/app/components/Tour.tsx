@@ -59,9 +59,9 @@ function steps(isAdmin: boolean): Step[] {
       body: 'A printable health summary you can hand to a clinician — profile, conditions, medications, and recent labs.',
     },
     {
-      anchor: 'nav-assistant',
+      anchor: 'fab-assistant',
       title: 'Assistant',
-      body: 'A companion with a personality you choose. Live conversation is coming soon; you can pick its style today.',
+      body: 'The chat button in the bottom-right opens your assistant panel — ask questions, log readings, or change its personality any time.',
     },
     {
       anchor: 'nav-profile',

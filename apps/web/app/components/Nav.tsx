@@ -11,7 +11,6 @@ import { useMe } from './useMe'
 
 const LINKS = [
   { href: '/dashboard', label: 'Dashboard', tour: 'nav-dashboard' },
-  { href: '/assistant', label: 'Assistant', tour: 'nav-assistant' },
   { href: '/metrics', label: 'Metrics', tour: 'nav-metrics' },
   { href: '/medications', label: 'Medications', tour: 'nav-medications' },
   { href: '/assessments', label: 'Assessments', tour: 'nav-assessments' },
