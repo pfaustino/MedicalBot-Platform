@@ -11,10 +11,47 @@ export const DEFAULT_MODELS = {
   extract: 'anthropic/claude-haiku-4.5',
   analyze: 'anthropic/claude-sonnet-4.5',
   vision: 'anthropic/claude-sonnet-4.5',
-  tts: 'openai/gpt-4o-mini-tts',
+  tts: 'mistralai/voxtral-mini-tts-2603',
   stt: 'openai/whisper-large-v3',
 } as const
-export const DEFAULT_TTS_VOICE = 'alloy'
+export const DEFAULT_TTS_VOICE = 'en_paul_neutral'
+
+/** OpenRouter never published these slugs; they 400 as "does not exist". */
+const MISSING_TTS_MODELS = new Set([
+  'openai/gpt-4o-mini-tts',
+  'openai/gpt-4o-mini-tts-2025-12-15',
+])
+
+const LEGACY_OPENAI_TTS_VOICES = new Set([
+  'alloy',
+  'echo',
+  'fable',
+  'onyx',
+  'nova',
+  'shimmer',
+  'coral',
+  'verse',
+  'ballad',
+  'ash',
+  'sage',
+  'marin',
+  'cedar',
+])
+
+export function canonicalizeTtsModel(model: string): string {
+  const id = model.trim()
+  if (!id || MISSING_TTS_MODELS.has(id)) return DEFAULT_MODELS.tts
+  return id
+}
+
+export function canonicalizeTtsVoice(voice: string, requestedModel: string): string {
+  const v = voice.trim() || DEFAULT_TTS_VOICE
+  const model = canonicalizeTtsModel(requestedModel)
+  if (model === DEFAULT_MODELS.tts && LEGACY_OPENAI_TTS_VOICES.has(v)) {
+    return DEFAULT_TTS_VOICE
+  }
+  return v
+}
 
 export interface ResolvedOpenRouterSettings {
   apiKey: string | null
@@ -120,9 +157,11 @@ export async function getOpenRouterSettings(userId: string): Promise<ResolvedOpe
   const extract = pickString(row?.openrouterModelExtract, config.MODEL_EXTRACT, DEFAULT_MODELS.extract)
   const analyze = pickString(row?.openrouterModelAnalyze, config.MODEL_ANALYZE, DEFAULT_MODELS.analyze)
   const vision = pickString(row?.openrouterModelVision, config.MODEL_VISION, DEFAULT_MODELS.vision)
-  const tts = pickString(row?.openrouterModelTts, config.MODEL_TTS, DEFAULT_MODELS.tts)
+  const ttsRaw = pickString(row?.openrouterModelTts, config.MODEL_TTS, DEFAULT_MODELS.tts).value
   const stt = pickString(row?.openrouterModelStt, config.MODEL_STT, DEFAULT_MODELS.stt)
-  const ttsVoice = pickString(row?.openrouterTtsVoice, config.TTS_VOICE, DEFAULT_TTS_VOICE)
+  const ttsVoiceRaw = pickString(row?.openrouterTtsVoice, config.TTS_VOICE, DEFAULT_TTS_VOICE).value
+  const tts = canonicalizeTtsModel(ttsRaw)
+  const ttsVoice = canonicalizeTtsVoice(ttsVoiceRaw, ttsRaw)
 
   return {
     apiKey: key,
@@ -132,10 +171,10 @@ export async function getOpenRouterSettings(userId: string): Promise<ResolvedOpe
       extract: extract.value,
       analyze: analyze.value,
       vision: vision.value,
-      tts: tts.value,
+      tts,
       stt: stt.value,
     },
-    ttsVoice: ttsVoice.value,
+    ttsVoice,
   }
 }
 

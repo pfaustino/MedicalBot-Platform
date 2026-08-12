@@ -271,20 +271,9 @@ interface AiSettings {
   }
 }
 
-const TTS_VOICES = [
-  { id: 'alloy', label: 'Alloy' },
-  { id: 'echo', label: 'Echo' },
-  { id: 'fable', label: 'Fable' },
-  { id: 'onyx', label: 'Onyx' },
-  { id: 'nova', label: 'Nova' },
-  { id: 'shimmer', label: 'Shimmer' },
-  { id: 'coral', label: 'Coral' },
-  { id: 'verse', label: 'Verse' },
-  { id: 'ballad', label: 'Ballad' },
-  { id: 'ash', label: 'Ash' },
-  { id: 'sage', label: 'Sage' },
-  { id: 'marin', label: 'Marin' },
-]
+function formatVoiceLabel(id: string): string {
+  return id.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
 
 function OpenRouterSettings() {
   const toast = useToast()
@@ -298,10 +287,11 @@ function OpenRouterSettings() {
   const [modelVision, setModelVision] = useState('')
   const [modelTts, setModelTts] = useState('')
   const [modelStt, setModelStt] = useState('')
-  const [ttsVoice, setTtsVoice] = useState('alloy')
+  const [ttsVoice, setTtsVoice] = useState('en_paul_neutral')
   const [busy, setBusy] = useState(false)
   const [previewing, setPreviewing] = useState(false)
   const previewAudioRef = useRef<HTMLAudioElement | null>(null)
+  const [ttsVoices, setTtsVoices] = useState<{ id: string; label: string }[]>([])
 
   const load = () =>
     apiGet<{ ai: AiSettings }>('/api/settings/ai').then((d) => {
@@ -381,7 +371,8 @@ function OpenRouterSettings() {
       if (previewing) stopPreview()
       return
     }
-    const voiceLabel = TTS_VOICES.find((v) => v.id === ttsVoice)?.label ?? ttsVoice
+    const voiceLabel =
+      ttsVoices.find((v) => v.id === ttsVoice)?.label ?? formatVoiceLabel(ttsVoice)
     setPreviewing(true)
     try {
       const blob = await apiPostBlob('/api/assistant/speech', {
@@ -415,6 +406,37 @@ function OpenRouterSettings() {
   useEffect(() => {
     return () => stopPreview()
   }, [])
+
+  useEffect(() => {
+    const selected = modelTts.trim()
+    if (!status?.configured || !selected) {
+      setTtsVoices([])
+      return
+    }
+    let live = true
+    const params = new URLSearchParams({ q: selected, kind: 'speech' })
+    apiGet<{ models: { id: string; supportedVoices?: string[] }[] }>(`/api/settings/ai/models?${params}`)
+      .then((d) => {
+        if (!live) return
+        const match = d.models.find((m) => m.id === selected)
+        const voices = (match?.supportedVoices ?? []).map((id) => ({
+          id,
+          label: formatVoiceLabel(id),
+        }))
+        setTtsVoices(voices)
+        if (voices.length > 0) {
+          setTtsVoice((current) =>
+            voices.some((v) => v.id === current) ? current : voices[0]!.id,
+          )
+        }
+      })
+      .catch(() => {
+        if (live) setTtsVoices([])
+      })
+    return () => {
+      live = false
+    }
+  }, [status?.configured, modelTts])
 
   return (
     <section>
@@ -534,11 +556,13 @@ function OpenRouterSettings() {
             <span>Voice</span>
             <div className="voice-preview-row">
               <select value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)} disabled={!loaded || busy}>
-                {TTS_VOICES.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.label}
-                  </option>
-                ))}
+                {(ttsVoices.length > 0 ? ttsVoices : [{ id: ttsVoice, label: formatVoiceLabel(ttsVoice) }]).map(
+                  (v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.label}
+                    </option>
+                  ),
+                )}
               </select>
               <button
                 type="button"

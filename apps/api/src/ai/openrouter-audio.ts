@@ -1,5 +1,10 @@
 import { config } from '../config.js'
-import { getOpenRouterSettings, type ResolvedOpenRouterSettings } from '../lib/openrouter-settings.js'
+import {
+  canonicalizeTtsModel,
+  canonicalizeTtsVoice,
+  getOpenRouterSettings,
+  type ResolvedOpenRouterSettings,
+} from '../lib/openrouter-settings.js'
 import { OpenRouterError } from './openrouter.js'
 
 function audioHeaders(apiKey: string): Record<string, string> {
@@ -30,8 +35,9 @@ export async function synthesizeSpeech(options: {
   responseFormat?: 'mp3' | 'pcm'
 }): Promise<{ bytes: Buffer; contentType: string; model: string }> {
   const settings = await requireSettings(options.userId)
-  const model = options.model?.trim() || settings.models.tts
-  const voice = options.voice?.trim() || settings.ttsVoice
+  const requestedModel = options.model?.trim() || settings.models.tts
+  const model = canonicalizeTtsModel(requestedModel)
+  const voice = canonicalizeTtsVoice(options.voice?.trim() || settings.ttsVoice, requestedModel)
   const responseFormat = options.responseFormat ?? 'mp3'
 
   const response = await fetch(`${settings.baseUrl}/audio/speech`, {

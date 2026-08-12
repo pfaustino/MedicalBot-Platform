@@ -4,6 +4,7 @@ export interface SlimModel {
   contextLength?: number
   inputModalities: string[]
   outputModalities: string[]
+  supportedVoices: string[]
 }
 
 export type ModelKind = 'text' | 'speech' | 'transcription'
@@ -56,6 +57,7 @@ export async function fetchOpenRouterModels(apiKey: string, baseUrl: string): Pr
         output_modalities?: unknown
         modality?: string
       }
+      supported_voices?: unknown
     }>
   }
 
@@ -70,6 +72,7 @@ export async function fetchOpenRouterModels(apiKey: string, baseUrl: string): Pr
         contextLength: m.context_length ?? undefined,
         inputModalities,
         outputModalities,
+        supportedVoices: asStringArray(m.supported_voices),
       }
     })
     .sort((a, b) => a.id.localeCompare(b.id))
@@ -84,7 +87,7 @@ function matchesKind(model: SlimModel, kind: ModelKind): boolean {
   const inputs = model.inputModalities.map((m) => m.toLowerCase())
 
   if (kind === 'speech') {
-    if (outputs.includes('audio')) return true
+    if (outputs.includes('speech') || outputs.includes('audio')) return true
     return /tts|speech/.test(id) && !/whisper|transcri/.test(id)
   }
 

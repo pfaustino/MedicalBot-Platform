@@ -94,9 +94,9 @@ const envSchema = z.object({
   MODEL_VISION: z.string().default('anthropic/claude-sonnet-4.5'),
 
   // OpenRouter audio (assistant mic + speak). Same API key as chat.
-  MODEL_TTS: z.string().default('openai/gpt-4o-mini-tts'),
+  MODEL_TTS: z.string().default('mistralai/voxtral-mini-tts-2603'),
   MODEL_STT: z.string().default('openai/whisper-large-v3'),
-  TTS_VOICE: z.string().default('alloy'),
+  TTS_VOICE: z.string().default('en_paul_neutral'),
 })
 
 const parsed = envSchema.safeParse(process.env)
