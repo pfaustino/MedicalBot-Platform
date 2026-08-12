@@ -45,19 +45,35 @@ export function Nav() {
     <>
       <nav className="app-nav">
         <div className="app-nav-inner">
-          <Link href="/dashboard" className="brand" data-tour="brand">
-            MedicalBot
-          </Link>
+          <div className="nav-bar">
+            <Link href="/dashboard" className="brand" data-tour="brand">
+              MedicalBot
+            </Link>
 
-          <button
-            type="button"
-            className="nav-toggle"
-            aria-label="Toggle menu"
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((v) => !v)}
-          >
-            ☰
-          </button>
+            <div className="nav-right">
+              <button
+                type="button"
+                className="nav-toggle"
+                aria-label="Toggle menu"
+                aria-expanded={menuOpen}
+                onClick={() => setMenuOpen((v) => !v)}
+              >
+                ☰
+              </button>
+              <button
+                type="button"
+                className="btn-primary btn-sm"
+                data-tour="log"
+                onClick={() => setLogOpen(true)}
+              >
+                + Log
+              </button>
+              <ThemeToggle />
+              <button type="button" className="btn-ghost btn-sm" onClick={() => void signOut()}>
+                Sign out
+              </button>
+            </div>
+          </div>
 
           <ul className={`nav-links ${menuOpen ? 'open' : ''}`}>
             {LINKS.map((link) => (
@@ -85,21 +101,6 @@ export function Nav() {
               </li>
             )}
           </ul>
-
-          <div className="nav-right">
-            <button
-              type="button"
-              className="btn-primary btn-sm"
-              data-tour="log"
-              onClick={() => setLogOpen(true)}
-            >
-              + Log
-            </button>
-            <ThemeToggle />
-            <button type="button" className="btn-ghost btn-sm" onClick={() => void signOut()}>
-              Sign out
-            </button>
-          </div>
         </div>
       </nav>
 
