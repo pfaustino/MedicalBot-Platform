@@ -143,6 +143,10 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
           ),
           doseCount30d: mine.length,
           missed30d: mine.filter((e) => e.status === 'missed' || e.status === 'skipped').length,
+          events30d: mine.map((e) => ({
+            scheduledFor: e.scheduledFor,
+            status: e.status,
+          })),
         }
       }),
     })

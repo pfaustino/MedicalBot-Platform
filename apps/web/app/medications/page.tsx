@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { AppGate } from '../components/AppGate'
 import { Modal } from '../components/Modal'
 import { useToast } from '../components/Toast'
@@ -13,6 +13,11 @@ interface Schedule {
   times: string[]
   withFood: boolean
   instructions: string | null
+}
+
+interface AdherenceEventBrief {
+  scheduledFor: string
+  status: string
 }
 
 interface Medication {
@@ -30,9 +35,26 @@ interface Medication {
   adherence30d: number
   doseCount30d: number
   missed30d: number
+  events30d: AdherenceEventBrief[]
 }
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
+
+function localDateInput(d = new Date()): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/** Canonical noon-local slot so one log per med per calendar day upserts cleanly. */
+function scheduledForDay(yyyyMmDd: string): string {
+  return new Date(`${yyyyMmDd}T12:00:00`).toISOString()
+}
+
+function eventLocalDay(iso: string): string {
+  return localDateInput(new Date(iso))
+}
 
 function describeSchedule(s: Schedule): string {
   if (s.kind === 'as_needed') return 'As needed'
@@ -42,7 +64,81 @@ function describeSchedule(s: Schedule): string {
   return `${s.times.length}× daily at ${times}${s.withFood ? ' · with food' : ''}`
 }
 
-function MedCard({ m, onChanged }: { m: Medication; onChanged: () => void }) {
+const DAY_RANK: Record<string, number> = {
+  taken: 4,
+  late: 3,
+  skipped: 2,
+  missed: 1,
+}
+
+function dayStatusMap(events: AdherenceEventBrief[]): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const e of events) {
+    const day = eventLocalDay(e.scheduledFor)
+    const prev = map.get(day)
+    if (!prev || (DAY_RANK[e.status] ?? 0) > (DAY_RANK[prev] ?? 0)) {
+      map.set(day, e.status)
+    }
+  }
+  return map
+}
+
+function last30Days(endingOn: string): string[] {
+  const end = new Date(`${endingOn}T12:00:00`)
+  const days: string[] = []
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(end)
+    d.setDate(end.getDate() - i)
+    days.push(localDateInput(d))
+  }
+  return days
+}
+
+function AdherenceChart({ events, endingOn }: { events: AdherenceEventBrief[]; endingOn: string }) {
+  const byDay = useMemo(() => dayStatusMap(events), [events])
+  const days = useMemo(() => last30Days(endingOn), [endingOn])
+
+  return (
+    <div className="adherence-chart" role="img" aria-label="Last 30 days of dose logging">
+      <div className="adherence-chart-bars">
+        {days.map((day) => {
+          const status = byDay.get(day)
+          const cls = status ? `day-${status}` : 'day-empty'
+          const label = status
+            ? `${day}: ${status}`
+            : `${day}: no log`
+          return <span key={day} className={`adherence-day ${cls}`} title={label} />
+        })}
+      </div>
+      <div className="adherence-chart-legend hint">
+        <span>
+          <i className="adherence-swatch day-taken" /> Taken / late
+        </span>
+        <span>
+          <i className="adherence-swatch day-skipped" /> Skipped / missed
+        </span>
+        <span>
+          <i className="adherence-swatch day-empty" /> No log
+        </span>
+        <span>Oldest → newest</span>
+      </div>
+    </div>
+  )
+}
+
+function MedCard({
+  m,
+  logDate,
+  selected,
+  onSelect,
+  onChanged,
+}: {
+  m: Medication
+  logDate: string
+  selected: boolean
+  onSelect: (id: string, next: boolean) => void
+  onChanged: () => void
+}) {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
   const pct = Math.round(m.adherence30d * 100)
@@ -52,8 +148,11 @@ function MedCard({ m, onChanged }: { m: Medication; onChanged: () => void }) {
     if (busy) return
     setBusy(true)
     try {
-      await apiPost(`/api/medications/${m.id}/adherence`, { status })
-      toast.show(`Logged: ${status}.`, 'ok')
+      await apiPost(`/api/medications/${m.id}/adherence`, {
+        status,
+        scheduledFor: scheduledForDay(logDate),
+      })
+      toast.show(`Logged ${status} for ${logDate}.`, 'ok')
       onChanged()
     } catch {
       toast.show('Could not log that dose.', 'err')
@@ -78,17 +177,29 @@ function MedCard({ m, onChanged }: { m: Medication; onChanged: () => void }) {
   }
 
   return (
-    <div className={`card${m.isActive ? '' : ' muted'}`}>
+    <div className={`card med-card${m.isActive ? '' : ' muted'}`}>
       <div className="card-head">
-        <div>
-          <h2>
-            {m.name} <span className="muted">{m.dose}</span>
-            {!m.isActive && <span className="badge"> Inactive</span>}
-          </h2>
-          <p className="hint">
-            {describeSchedule(m.schedule)}
-            {m.purpose && ` · ${m.purpose}`}
-          </p>
+        <div className="med-card-title">
+          {m.isActive && (
+            <label className="med-select">
+              <input
+                type="checkbox"
+                checked={selected}
+                onChange={(e) => onSelect(m.id, e.target.checked)}
+                aria-label={`Select ${m.name}`}
+              />
+            </label>
+          )}
+          <div>
+            <h2>
+              {m.name} <span className="muted">{m.dose}</span>
+              {!m.isActive && <span className="badge"> Inactive</span>}
+            </h2>
+            <p className="hint">
+              {describeSchedule(m.schedule)}
+              {m.purpose && ` · ${m.purpose}`}
+            </p>
+          </div>
         </div>
         <div className="stat-right">
           <span className={`big-stat ${tone}`}>{pct}%</span>
@@ -99,6 +210,8 @@ function MedCard({ m, onChanged }: { m: Medication; onChanged: () => void }) {
       <div className="meter" aria-hidden>
         <div className={`meter-fill ${tone}`} style={{ width: `${pct}%` }} />
       </div>
+
+      <AdherenceChart events={m.events30d ?? []} endingOn={logDate} />
 
       <dl className="detail-grid">
         <div>
@@ -135,19 +248,19 @@ function MedCard({ m, onChanged }: { m: Medication; onChanged: () => void }) {
       {m.isActive && (
         <>
           <div className="btn-row">
-            <span className="hint">Log a dose:</span>
-            <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={() => logDose('taken')}>
+            <span className="hint">Log for {logDate}:</span>
+            <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={() => void logDose('taken')}>
               Taken
             </button>
-            <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={() => logDose('late')}>
+            <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={() => void logDose('late')}>
               Late
             </button>
-            <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={() => logDose('skipped')}>
+            <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={() => void logDose('skipped')}>
               Skipped
             </button>
           </div>
           <div className="btn-row">
-            <button type="button" className="btn-ghost btn-sm" disabled={busy} onClick={markInactive}>
+            <button type="button" className="btn-ghost btn-sm" disabled={busy} onClick={() => void markInactive()}>
               Mark inactive
             </button>
           </div>
@@ -157,8 +270,112 @@ function MedCard({ m, onChanged }: { m: Medication; onChanged: () => void }) {
   )
 }
 
-function MedicationForm({ onDone }: { onDone: () => void }) {
+function MedicationList({
+  medications,
+  onChanged,
+}: {
+  medications: Medication[]
+  onChanged: () => void
+}) {
   const toast = useToast()
+  const [logDate, setLogDate] = useState(localDateInput)
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
+
+  const active = medications.filter((m) => m.isActive)
+  const allSelected = active.length > 0 && active.every((m) => selected.has(m.id))
+  const selectedCount = active.filter((m) => selected.has(m.id)).length
+
+  function toggleSelect(id: string, next: boolean) {
+    setSelected((prev) => {
+      const copy = new Set(prev)
+      if (next) copy.add(id)
+      else copy.delete(id)
+      return copy
+    })
+  }
+
+  function toggleAll() {
+    if (allSelected) {
+      setSelected(new Set())
+      return
+    }
+    setSelected(new Set(active.map((m) => m.id)))
+  }
+
+  async function takenAllSelected() {
+    const ids = active.filter((m) => selected.has(m.id)).map((m) => m.id)
+    if (!ids.length || bulkBusy) return
+    setBulkBusy(true)
+    const slot = scheduledForDay(logDate)
+    let ok = 0
+    try {
+      for (const id of ids) {
+        await apiPost(`/api/medications/${id}/adherence`, { status: 'taken', scheduledFor: slot })
+        ok += 1
+      }
+      toast.show(`Logged taken for ${ok} medication${ok === 1 ? '' : 's'} on ${logDate}.`, 'ok')
+      onChanged()
+    } catch {
+      toast.show(
+        ok > 0
+          ? `Logged ${ok} of ${ids.length}, then failed. Refresh and retry the rest.`
+          : 'Could not log selected medications.',
+        'err',
+      )
+      if (ok > 0) onChanged()
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  return (
+    <div className="stack">
+      <div className="card med-bulk-bar">
+        <div className="med-bulk-controls">
+          <label className="field med-bulk-date">
+            <span>Log date</span>
+            <input
+              type="date"
+              value={logDate}
+              max={localDateInput()}
+              onChange={(e) => setLogDate(e.target.value || localDateInput())}
+            />
+          </label>
+          <div className="btn-row med-bulk-actions">
+            <button type="button" className="btn-ghost btn-sm" onClick={toggleAll} disabled={active.length === 0}>
+              {allSelected ? 'Uncheck all' : 'Check all'}
+            </button>
+            <button
+              type="button"
+              className="btn-primary btn-sm"
+              disabled={selectedCount === 0 || bulkBusy}
+              onClick={() => void takenAllSelected()}
+            >
+              {bulkBusy ? 'Logging…' : `Taken all selected (${selectedCount})`}
+            </button>
+          </div>
+        </div>
+        <p className="hint" style={{ marginBottom: 0 }}>
+          Check medications, set the date, then mark them taken for that day. Per-card buttons use the same date.
+        </p>
+      </div>
+
+      {medications.map((m) => (
+        <MedCard
+          key={m.id}
+          m={m}
+          logDate={logDate}
+          selected={selected.has(m.id)}
+          onSelect={toggleSelect}
+          onChanged={onChanged}
+        />
+      ))}
+    </div>
+  )
+}
+
+function MedicationForm({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState('')
   const [dose, setDose] = useState('')
   const [form, setForm] = useState('tablet')
@@ -374,7 +591,8 @@ export default function MedicationsPage() {
         </div>
 
         <p className="muted">
-          Adherence is calculated over the last 30 days. Late doses count as taken.
+          Log doses by day, see the last 30 days on each card, and mark several meds taken at once. Late
+          counts as taken for adherence.
         </p>
 
         <Loaded<{ medications: Medication[] }> key={reloadKey} path="/api/medications">
@@ -382,11 +600,7 @@ export default function MedicationsPage() {
             d.medications.length === 0 ? (
               <div className="card">No medications recorded.</div>
             ) : (
-              <div className="stack">
-                {d.medications.map((m) => (
-                  <MedCard key={m.id} m={m} onChanged={refetch} />
-                ))}
-              </div>
+              <MedicationList medications={d.medications} onChanged={refetch} />
             )
           }
         </Loaded>

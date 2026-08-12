@@ -421,6 +421,99 @@ h3 {
   font-size: 0.95rem;
 }
 
+/* ---------- medications adherence UX ---------- */
+
+.med-bulk-bar {
+  padding: 0.9rem 1rem;
+}
+
+.med-bulk-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  margin-bottom: 0.55rem;
+}
+
+.med-bulk-date {
+  margin: 0;
+  min-width: 11rem;
+}
+
+.med-bulk-actions {
+  margin: 0;
+}
+
+.med-card-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.med-select {
+  display: inline-flex;
+  padding-top: 0.35rem;
+}
+
+.adherence-chart {
+  margin: 0.75rem 0 0.25rem;
+}
+
+.adherence-chart-bars {
+  display: grid;
+  grid-template-columns: repeat(30, minmax(0, 1fr));
+  gap: 2px;
+  height: 1.35rem;
+}
+
+.adherence-day {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  min-width: 0;
+}
+
+.adherence-day.day-taken,
+.adherence-day.day-late,
+.adherence-swatch.day-taken {
+  background: var(--ok);
+}
+
+.adherence-day.day-skipped,
+.adherence-day.day-missed,
+.adherence-swatch.day-skipped {
+  background: var(--urgent);
+  opacity: 0.75;
+}
+
+.adherence-day.day-empty,
+.adherence-swatch.day-empty {
+  background: var(--border);
+}
+
+.adherence-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+  margin-top: 0.4rem;
+  align-items: center;
+}
+
+.adherence-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.adherence-swatch {
+  display: inline-block;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 2px;
+}
+
 .table-wrap {
   overflow-x: auto;
   border: 1px solid var(--border);
