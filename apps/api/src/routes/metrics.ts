@@ -111,6 +111,33 @@ export async function metricRoutes(app: FastifyInstance): Promise<void> {
     })
   })
 
+  /** Distinct episode names (symptom_severity.context) for charting one at a time. */
+  app.get('/metrics/symptom-contexts', async (request, reply) => {
+    const userId = request.session.userId!
+    const rows = await db
+      .select({
+        name: schema.metrics.context,
+        n: count(),
+        latest: max(schema.metrics.recordedAt),
+      })
+      .from(schema.metrics)
+      .where(
+        and(eq(schema.metrics.userId, userId), eq(schema.metrics.type, 'symptom_severity')),
+      )
+      .groupBy(schema.metrics.context)
+      .orderBy(desc(count()))
+
+    return reply.send({
+      symptoms: rows
+        .filter((r) => r.name)
+        .map((r) => ({
+          name: r.name!,
+          count: Number(r.n),
+          latest: r.latest,
+        })),
+    })
+  })
+
   app.get('/metrics', async (request, reply) => {
     const parsed = listQuery.safeParse(request.query)
     if (!parsed.success) {

@@ -130,7 +130,7 @@ export default function DashboardPage() {
             <div className="quick-actions">
               <button type="button" className="action-card" onClick={() => setLogging(true)}>
                 <span className="action-icon">🩸</span>
-                <span className="action-title">Log a reading</span>
+                <span className="action-title">Log a reading or episode</span>
                 <span className="action-sub">Record a metric right now</span>
               </button>
               <Link href="/assessments" className="action-card">
@@ -238,7 +238,7 @@ export default function DashboardPage() {
 
         <Modal
           open={logging}
-          title="Log a reading"
+          title="Log a reading or episode"
           onClose={() => setLogging(false)}
           wide
         >
@@ -246,7 +246,6 @@ export default function DashboardPage() {
             onDone={() => {
               setLogging(false)
               setReloadKey((k) => k + 1)
-              toast.show('Reading logged.')
             }}
           />
         </Modal>

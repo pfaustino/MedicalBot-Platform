@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { EPISODE_LABELS, EPISODE_TYPES } from '@medbot/shared'
 import { AppGate } from '../components/AppGate'
 import { Modal } from '../components/Modal'
 import { MetricEntryForm } from '../components/MetricEntryForm'
@@ -34,16 +35,26 @@ interface LabAnalyte {
   unit: string | null
 }
 
-/** Dropdown value: plain metric type, or `lab:Analyte name` for imported labs. */
+interface SymptomContext {
+  name: string
+  count: number
+  latest: string | null
+}
+
+/** Dropdown value: plain metric, `lab:Analyte`, or `symptom:episode_key`. */
 function parseSelection(value: string): { type: string; context?: string } {
   if (value.startsWith('lab:')) {
     return { type: 'lab_value', context: value.slice(4) }
+  }
+  if (value.startsWith('symptom:')) {
+    return { type: 'symptom_severity', context: value.slice(8) }
   }
   return { type: value }
 }
 
 function selectionKey(type: string, context?: string | null): string {
   if (type === 'lab_value' && context) return `lab:${context}`
+  if (type === 'symptom_severity' && context) return `symptom:${context}`
   return type
 }
 
@@ -54,6 +65,7 @@ const TARGETS: Record<string, { targetMin: number | null; targetMax: number | nu
   mood: { targetMin: 4, targetMax: 10 },
   anxiety: { targetMin: 0, targetMax: 5 },
   side_effect_severity: { targetMin: 0, targetMax: 3 },
+  symptom_severity: { targetMin: 0, targetMax: 3 },
   a1c: { targetMin: null, targetMax: 7 },
   heart_rate: { targetMin: 60, targetMax: 100 },
   spo2: { targetMin: 95, targetMax: 100 },
@@ -77,10 +89,19 @@ const RANGES = [
   { days: 0, label: 'All time' },
 ]
 
+function episodeLabel(key: string): string {
+  return (
+    EPISODE_LABELS[key as keyof typeof EPISODE_LABELS] ??
+    CONTEXT_LABELS[key] ??
+    key.replace(/_/g, ' ')
+  )
+}
+
 export default function MetricsPage() {
   const toast = useToast()
   const [types, setTypes] = useState<TypeInfo[]>([])
   const [labAnalytes, setLabAnalytes] = useState<LabAnalyte[]>([])
+  const [symptoms, setSymptoms] = useState<SymptomContext[]>([])
   const [selection, setSelection] = useState('')
   const [days, setDays] = useState(0)
   const [rows, setRows] = useState<MetricRow[] | null>(null)
@@ -95,17 +116,21 @@ export default function MetricsPage() {
     Promise.all([
       apiGet<{ types: TypeInfo[] }>('/api/metrics/types'),
       apiGet<{ analytes: LabAnalyte[] }>('/api/metrics/lab-analytes'),
+      apiGet<{ symptoms: SymptomContext[] }>('/api/metrics/symptom-contexts'),
     ])
-      .then(([typeRes, labRes]) => {
+      .then(([typeRes, labRes, symptomRes]) => {
         if (cancelled) return
         setTypes(typeRes.types)
         setLabAnalytes(labRes.analytes)
+        setSymptoms(symptomRes.symptoms)
         setSelection((cur) => {
           if (cur) return cur
+          const topSymptom = symptomRes.symptoms[0]
+          if (topSymptom) return selectionKey('symptom_severity', topSymptom.name)
           const topLab = labRes.analytes[0]
           if (topLab) return selectionKey('lab_value', topLab.name)
           const best = [...typeRes.types]
-            .filter((t) => t.type !== 'lab_value')
+            .filter((t) => t.type !== 'lab_value' && t.type !== 'symptom_severity')
             .sort((a, b) => b.count - a.count)[0]
           return best?.type ?? 'blood_glucose'
         })
@@ -146,26 +171,38 @@ export default function MetricsPage() {
   const options = useMemo(() => {
     const counts = new Map(types.map((t) => [t.type, t.count]))
     const metrics = [...types]
-      .filter((t) => t.type !== 'lab_value')
+      .filter((t) => t.type !== 'lab_value' && t.type !== 'symptom_severity')
       .sort((a, b) => b.count - a.count)
       .map((t) => ({
         value: t.type,
         label: METRIC_LABELS[t.type] ?? t.type,
         count: t.count,
       }))
+    const episodeOpts = [
+      ...symptoms.map((s) => ({
+        value: selectionKey('symptom_severity', s.name),
+        label: `Episode · ${episodeLabel(s.name)}`,
+        count: s.count,
+      })),
+      ...EPISODE_TYPES.filter((key) => !symptoms.some((s) => s.name === key)).map((key) => ({
+        value: selectionKey('symptom_severity', key),
+        label: `Episode · ${EPISODE_LABELS[key]}`,
+        count: 0,
+      })),
+    ]
     const labs = labAnalytes.map((a) => ({
       value: selectionKey('lab_value', a.name),
-      label: a.name,
+      label: `Lab · ${a.name}`,
       count: a.count,
     }))
-    const seen = new Set([...metrics, ...labs].map((o) => o.value))
+    const seen = new Set([...metrics, ...episodeOpts, ...labs].map((o) => o.value))
     const rest = DEFAULT_TYPES.filter((t) => !counts.has(t) && !seen.has(t)).map((t) => ({
       value: t,
       label: METRIC_LABELS[t] ?? t,
       count: 0,
     }))
-    return [...metrics, ...labs, ...rest]
-  }, [types, labAnalytes])
+    return [...metrics, ...episodeOpts, ...labs, ...rest]
+  }, [types, labAnalytes, symptoms])
 
   const target = TARGETS[type] ?? { targetMin: null, targetMax: null }
   const points = (rows ?? []).map((r) => ({ t: +new Date(r.recordedAt), v: r.value }))
@@ -189,7 +226,11 @@ export default function MetricsPage() {
         ]
       : undefined
   const label =
-    type === 'lab_value' && context ? context : (METRIC_LABELS[type] ?? type)
+    type === 'lab_value' && context
+      ? context
+      : type === 'symptom_severity' && context
+        ? episodeLabel(context)
+        : (METRIC_LABELS[type] ?? type)
 
   return (
     <AppGate>
@@ -197,11 +238,13 @@ export default function MetricsPage() {
         <div className="page-header">
           <div>
             <h1>Metrics</h1>
-            <p className="muted">Every reading you record, charted on its own scale.</p>
+            <p className="muted">
+              Readings and episodes charted over time — useful for spotting patterns with meds.
+            </p>
           </div>
           <div className="page-actions">
             <button type="button" className="btn-primary" onClick={() => setLogging(true)}>
-              + Log reading
+              + Log
             </button>
           </div>
         </div>
@@ -237,9 +280,9 @@ export default function MetricsPage() {
 
         {rows && rows.length === 0 && (
           <div className="card">
-            <p>No {label.toLowerCase()} readings in this window.</p>
+            <p>No {label.toLowerCase()} entries in this window.</p>
             <p className="hint">
-              Try &ldquo;All time&rdquo; for imported lab trends, or log one with &ldquo;+ Log reading&rdquo;.
+              Try &ldquo;All time&rdquo;, or log one with &ldquo;+ Log&rdquo; (Reading or Episode).
             </p>
           </div>
         )}
@@ -259,26 +302,29 @@ export default function MetricsPage() {
               )}
               {type !== 'blood_pressure' &&
                 (target.targetMin !== null || target.targetMax !== null) && (
-                <p className="hint">
-                  Shaded band is the target range
-                  {target.targetMin !== null && target.targetMax !== null
-                    ? ` (${target.targetMin}–${target.targetMax})`
-                    : target.targetMax !== null
-                      ? ` (up to ${target.targetMax})`
-                      : ''}
-                  .
-                </p>
-              )}
+                  <p className="hint">
+                    Shaded band is the target range
+                    {target.targetMin !== null && target.targetMax !== null
+                      ? ` (${target.targetMin}–${target.targetMax})`
+                      : target.targetMax !== null
+                        ? ` (up to ${target.targetMax})`
+                        : ''}
+                    .
+                  </p>
+                )}
             </div>
 
-            <h2>Readings ({rows.length})</h2>
+            <h2>
+              {type === 'symptom_severity' ? 'Episodes' : 'Readings'} ({rows.length})
+            </h2>
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th>When</th>
-                    <th>Value</th>
+                    <th>{type === 'symptom_severity' ? 'Severity' : 'Value'}</th>
                     {!context && <th>Context</th>}
+                    <th>Note</th>
                     <th>Source</th>
                   </tr>
                 </thead>
@@ -291,8 +337,15 @@ export default function MetricsPage() {
                         <span className="hint">{r.unit}</span>
                       </td>
                       {!context && (
-                        <td>{r.context ? (CONTEXT_LABELS[r.context] ?? r.context) : '—'}</td>
+                        <td>
+                          {r.context
+                            ? type === 'symptom_severity'
+                              ? episodeLabel(r.context)
+                              : (CONTEXT_LABELS[r.context] ?? r.context)
+                            : '—'}
+                        </td>
                       )}
+                      <td className="hint">{r.note ?? '—'}</td>
                       <td className="hint">{r.source.replace(/_/g, ' ')}</td>
                     </tr>
                   ))}
@@ -305,13 +358,19 @@ export default function MetricsPage() {
           </>
         )}
 
-        <Modal open={logging} title="Log a reading" onClose={() => setLogging(false)} wide>
+        <Modal open={logging} title="Log a reading or episode" onClose={() => setLogging(false)} wide>
           <MetricEntryForm
-            defaultType={type === 'lab_value' ? 'blood_glucose' : type || 'blood_glucose'}
+            defaultMode={type === 'symptom_severity' ? 'episode' : 'reading'}
+            defaultEpisode={type === 'symptom_severity' && context ? context : 'dizziness'}
+            defaultType={
+              type === 'lab_value' || type === 'symptom_severity'
+                ? 'blood_glucose'
+                : type || 'blood_glucose'
+            }
             onDone={() => {
               setLogging(false)
               setReloadKey((k) => k + 1)
-              toast.show('Reading logged.')
+              toast.show(type === 'symptom_severity' ? 'Episode logged.' : 'Reading logged.')
             }}
           />
         </Modal>

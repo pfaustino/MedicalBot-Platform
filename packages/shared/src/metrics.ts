@@ -37,6 +37,43 @@ export const GLUCOSE_CONTEXTS = [
 ] as const
 export type GlucoseContext = (typeof GLUCOSE_CONTEXTS)[number]
 
+/**
+ * Curated episode keys stored as metrics.context on type `symptom_severity`.
+ * Keep this list stable so Metrics can chart one episode type at a time.
+ */
+export const EPISODE_TYPES = [
+  'dizziness',
+  'fall',
+  'blackout',
+  'vomiting',
+  'diarrhea',
+  'nausea',
+  'chest_pain',
+  'palpitations',
+  'shortness_of_breath',
+  'headache',
+  'confusion',
+  'weakness',
+  'other',
+] as const
+export type EpisodeType = (typeof EPISODE_TYPES)[number]
+
+export const EPISODE_LABELS: Record<EpisodeType, string> = {
+  dizziness: 'Dizziness',
+  fall: 'Fall',
+  blackout: 'Blackout / syncope',
+  vomiting: 'Vomiting',
+  diarrhea: 'Diarrhea',
+  nausea: 'Nausea',
+  chest_pain: 'Chest pain',
+  palpitations: 'Palpitations',
+  shortness_of_breath: 'Shortness of breath',
+  headache: 'Headache',
+  confusion: 'Confusion',
+  weakness: 'Weakness',
+  other: 'Other episode',
+}
+
 export const METRIC_SOURCES = [
   'manual',
   'chat_extraction',

@@ -188,7 +188,7 @@ export function Nav() {
         </div>
       </nav>
 
-      <Modal open={logOpen} title="Log a reading" onClose={() => setLogOpen(false)} wide>
+      <Modal open={logOpen} title="Log a reading or episode" onClose={() => setLogOpen(false)} wide>
         <MetricEntryForm onDone={() => setLogOpen(false)} />
       </Modal>
     </>

@@ -34,6 +34,19 @@ export const CONTEXT_LABELS: Record<string, string> = {
   dry_mouth: 'Dry mouth',
   phq9: 'PHQ-9',
   gad7: 'GAD-7',
+  dizziness: 'Dizziness',
+  fall: 'Fall',
+  blackout: 'Blackout / syncope',
+  vomiting: 'Vomiting',
+  diarrhea: 'Diarrhea',
+  nausea: 'Nausea',
+  chest_pain: 'Chest pain',
+  palpitations: 'Palpitations',
+  shortness_of_breath: 'Shortness of breath',
+  headache: 'Headache',
+  confusion: 'Confusion',
+  weakness: 'Weakness',
+  other: 'Other episode',
 }
 
 /** Blood pressure is the only metric that renders two numbers. */

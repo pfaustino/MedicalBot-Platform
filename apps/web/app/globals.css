@@ -635,6 +635,10 @@ select, .confirm-field input {
   border-color: var(--accent);
 }
 
+.log-mode-toggle {
+  margin: 0 0 1rem;
+}
+
 .confirm-field {
   display: flex;
   flex-direction: column;
