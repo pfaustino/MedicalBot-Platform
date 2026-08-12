@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { isOpenRouterConfigured, getOpenRouterSettings } from '../lib/openrouter-settings.js'
 import { db, schema } from '../db/index.js'
 import { runAgent } from '../ai/agent.js'
+import { synthesizeSpeech, transcribeAudio } from '../ai/openrouter-audio.js'
 import {
   complete,
   describeOpenRouterError,
@@ -11,6 +12,22 @@ import {
   type ChatMessage,
 } from '../ai/openrouter.js'
 import { requireAdmin, requireUser } from './auth.js'
+
+const AUDIO_FORMATS = ['webm', 'wav', 'mp3', 'mpeg', 'ogg', 'm4a', 'mp4', 'flac', 'aac'] as const
+
+function formatFromMime(mimeType: string): string | null {
+  const raw = mimeType.toLowerCase().split(';')[0]?.trim() ?? ''
+  if (raw === 'audio/webm') return 'webm'
+  if (raw === 'audio/wav' || raw === 'audio/x-wav' || raw === 'audio/wave') return 'wav'
+  if (raw === 'audio/mpeg' || raw === 'audio/mp3') return 'mp3'
+  if (raw === 'audio/ogg' || raw === 'audio/opus') return 'ogg'
+  if (raw === 'audio/mp4' || raw === 'audio/m4a' || raw === 'audio/x-m4a') return 'm4a'
+  if (raw === 'audio/flac') return 'flac'
+  if (raw === 'audio/aac') return 'aac'
+  const subtype = raw.split('/')[1]
+  if (subtype && (AUDIO_FORMATS as readonly string[]).includes(subtype)) return subtype
+  return null
+}
 
 /**
  * Conversational assistant (SPEC §4). Each turn assembles context, runs the
@@ -62,7 +79,6 @@ export async function assistantRoutes(app: FastifyInstance): Promise<void> {
     }
     const { message, personaId } = parsed.data
 
-    // Recent turns for continuity (most recent 20, back into chronological order).
     const recent = await db
       .select({ role: schema.conversations.role, content: schema.conversations.content })
       .from(schema.conversations)
@@ -90,7 +106,6 @@ export async function assistantRoutes(app: FastifyInstance): Promise<void> {
       return reply.send({ reply: turn.reply, actions: turn.actions, model: turn.model })
     } catch (err) {
       if (err instanceof OpenRouterError) {
-        // Log the full provider response, and tell the user what to actually fix.
         request.log.error({ status: err.status, body: err.body }, 'OpenRouter call failed')
         return reply.code(502).send({ error: describeOpenRouterError(err) })
       }
@@ -99,9 +114,105 @@ export async function assistantRoutes(app: FastifyInstance): Promise<void> {
     }
   })
 
-  // Owner/admin connection test: does a minimal live call and reports the exact
-  // outcome (which model, or the precise provider error) so misconfiguration is
-  // obvious without reading server logs.
+  const speechBody = z.object({
+    text: z.string().min(1).max(4000),
+    voice: z.string().max(60).optional(),
+  })
+
+  app.post('/assistant/speech', async (request, reply) => {
+    const userId = request.session.userId!
+    if (!(await isOpenRouterConfigured(userId))) {
+      return reply.code(503).send({
+        error: 'Add your OpenRouter API key in Settings to enable voice.',
+        configured: false,
+      })
+    }
+
+    const parsed = speechBody.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Invalid speech request', issues: parsed.error.issues })
+    }
+
+    try {
+      const audio = await synthesizeSpeech({
+        userId,
+        input: parsed.data.text,
+        voice: parsed.data.voice,
+      })
+      return reply
+        .header('Content-Type', audio.contentType)
+        .header('X-Speech-Model', audio.model)
+        .send(audio.bytes)
+    } catch (err) {
+      if (err instanceof OpenRouterError) {
+        request.log.error({ status: err.status, body: err.body }, 'OpenRouter speech failed')
+        return reply.code(502).send({ error: describeOpenRouterError(err) })
+      }
+      request.log.error({ err: err instanceof Error ? err.message : 'unknown' }, 'Speech failed')
+      return reply.code(502).send({ error: 'Could not generate speech. Please try again.' })
+    }
+  })
+
+  const transcribeBody = z.object({
+    mimeType: z.string().min(1).max(120),
+    dataUrl: z.string().min(1).max(12_000_000),
+  })
+
+  app.post(
+    '/assistant/transcribe',
+    { config: { bodyLimit: 10 * 1024 * 1024 } },
+    async (request, reply) => {
+      const userId = request.session.userId!
+      if (!(await isOpenRouterConfigured(userId))) {
+        return reply.code(503).send({
+          error: 'Add your OpenRouter API key in Settings to enable voice.',
+          configured: false,
+        })
+      }
+
+      const parsed = transcribeBody.safeParse(request.body)
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'Invalid audio', issues: parsed.error.issues })
+      }
+
+      const format = formatFromMime(parsed.data.mimeType)
+      if (!format) {
+        return reply
+          .code(400)
+          .send({ error: 'Unsupported audio type. Try again from a modern browser.' })
+      }
+
+      const comma = parsed.data.dataUrl.indexOf(',')
+      const rawB64 =
+        parsed.data.dataUrl.startsWith('data:') && comma >= 0
+          ? parsed.data.dataUrl.slice(comma + 1)
+          : parsed.data.dataUrl
+      if (!rawB64 || rawB64.length > 10_000_000) {
+        return reply.code(400).send({ error: 'Audio recording is too large. Try a shorter clip.' })
+      }
+
+      try {
+        const result = await transcribeAudio({
+          userId,
+          data: rawB64,
+          format,
+          language: 'en',
+        })
+        if (!result.text) {
+          return reply.code(422).send({ error: 'Could not hear any speech. Try again.' })
+        }
+        return reply.send({ text: result.text, model: result.model })
+      } catch (err) {
+        if (err instanceof OpenRouterError) {
+          request.log.error({ status: err.status, body: err.body }, 'OpenRouter STT failed')
+          return reply.code(502).send({ error: describeOpenRouterError(err) })
+        }
+        request.log.error({ err: err instanceof Error ? err.message : 'unknown' }, 'Transcribe failed')
+        return reply.code(502).send({ error: 'Could not transcribe audio. Please try again.' })
+      }
+    },
+  )
+
   app.get('/assistant/diagnostics', { preHandler: requireAdmin }, async (request, reply) => {
     const userId = request.session.userId!
     if (!(await isOpenRouterConfigured(userId))) {

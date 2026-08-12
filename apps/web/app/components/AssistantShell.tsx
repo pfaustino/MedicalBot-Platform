@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { SAMPLE_PERSONAS, getPersonaById, type AssistantPersona } from '@medbot/shared'
-import { apiDelete, apiGet, apiPost, ApiError } from '@/lib/api'
+import { apiDelete, apiErrorMessage, apiGet, apiPost, apiPostBlob, ApiError } from '@/lib/api'
 import { useAssistant } from './AssistantContext'
 import { Modal } from './Modal'
 import { useToast } from './Toast'
@@ -81,8 +81,14 @@ export function AssistantShell() {
   const [configured, setConfigured] = useState<boolean | null>(null)
   const [diag, setDiag] = useState<Diagnostics | null>(null)
   const [testing, setTesting] = useState(false)
+  const [recording, setRecording] = useState(false)
+  const [transcribing, setTranscribing] = useState(false)
+  const [speakingId, setSpeakingId] = useState<number | null>(null)
   const logRef = useRef<HTMLDivElement>(null)
   const historyLoaded = useRef(false)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const mediaChunksRef = useRef<Blob[]>([])
+  const audioRef = useRef<HTMLAudioElement | null>(null)
 
   const isAdmin = me.status === 'signed-in' && me.me.isAdmin
   const persona = getPersonaById(personaId) ?? SAMPLE_PERSONAS[0]
@@ -226,6 +232,129 @@ export function AssistantShell() {
     }
   }
 
+  function stopSpeaking() {
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current = null
+    }
+    setSpeakingId(null)
+  }
+
+  async function speakText(id: number, text: string) {
+    if (speakingId === id) {
+      stopSpeaking()
+      return
+    }
+    stopSpeaking()
+    setSpeakingId(id)
+    try {
+      const blob = await apiPostBlob('/api/assistant/speech', { text })
+      const url = URL.createObjectURL(blob)
+      const audio = new Audio(url)
+      audioRef.current = audio
+      audio.onended = () => {
+        URL.revokeObjectURL(url)
+        if (audioRef.current === audio) {
+          audioRef.current = null
+          setSpeakingId(null)
+        }
+      }
+      audio.onerror = () => {
+        URL.revokeObjectURL(url)
+        toast.show('Could not play speech.', 'err')
+        setSpeakingId(null)
+      }
+      await audio.play()
+    } catch (e) {
+      const detail =
+        e instanceof ApiError ? apiErrorMessage(e.body) : null
+      toast.show(detail ?? 'Could not speak that reply.', 'err')
+      setSpeakingId(null)
+    }
+  }
+
+  async function blobToDataUrl(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(new Error('Could not read recording'))
+      reader.readAsDataURL(blob)
+    })
+  }
+
+  async function finishRecording(blob: Blob) {
+    setTranscribing(true)
+    try {
+      const dataUrl = await blobToDataUrl(blob)
+      const res = await apiPost<{ text: string }>('/api/assistant/transcribe', {
+        mimeType: blob.type || 'audio/webm',
+        dataUrl,
+      })
+      const text = res.text.trim()
+      if (!text) {
+        toast.show('Could not hear any speech. Try again.', 'err')
+        return
+      }
+      setDraft((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text))
+    } catch (e) {
+      const detail = e instanceof ApiError ? apiErrorMessage(e.body) : null
+      toast.show(detail ?? 'Could not transcribe audio.', 'err')
+    } finally {
+      setTranscribing(false)
+    }
+  }
+
+  async function toggleMic() {
+    if (recording) {
+      mediaRecorderRef.current?.stop()
+      return
+    }
+    if (configured === false || sending || transcribing) return
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      toast.show('Microphone is not available in this browser.', 'err')
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+          ? 'audio/webm'
+          : ''
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream)
+      mediaChunksRef.current = []
+      recorder.ondataavailable = (ev) => {
+        if (ev.data.size > 0) mediaChunksRef.current.push(ev.data)
+      }
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop())
+        setRecording(false)
+        mediaRecorderRef.current = null
+        const blob = new Blob(mediaChunksRef.current, {
+          type: recorder.mimeType || 'audio/webm',
+        })
+        mediaChunksRef.current = []
+        if (blob.size > 0) void finishRecording(blob)
+      }
+      mediaRecorderRef.current = recorder
+      recorder.start()
+      setRecording(true)
+    } catch {
+      toast.show('Microphone permission was denied.', 'err')
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      stopSpeaking()
+      if (mediaRecorderRef.current?.state === 'recording') {
+        mediaRecorderRef.current.stop()
+      }
+    }
+  }, [])
+
   if (HIDDEN_ON.has(pathname) || me.status !== 'signed-in') return null
 
   return (
@@ -314,10 +443,21 @@ export function AssistantShell() {
             <div className="chat">
               <div className="chat-log" ref={logRef}>
                 {messages.map((m) => (
-                  <div key={m.id}>
+                  <div key={m.id} className="chat-turn">
                     <div className={`bubble ${m.role === 'user' ? 'bubble-user' : 'bubble-assistant'}`}>
                       {m.text}
                     </div>
+                    {m.role === 'assistant' && (
+                      <button
+                        type="button"
+                        className="btn-ghost btn-sm chat-speak-btn"
+                        disabled={configured === false}
+                        aria-label={speakingId === m.id ? 'Stop speaking' : 'Speak reply'}
+                        onClick={() => void speakText(m.id, m.text)}
+                      >
+                        {speakingId === m.id ? 'Stop' : 'Speak'}
+                      </button>
+                    )}
                     {m.actions && m.actions.length > 0 && (
                       <div className="chip-row" style={{ marginTop: '0.35rem' }}>
                         {m.actions.map((a, i) => (
@@ -358,19 +498,36 @@ export function AssistantShell() {
                     void send(draft)
                   }}
                 >
+                  <button
+                    type="button"
+                    className={`btn-secondary btn-sm chat-mic-btn${recording ? ' recording' : ''}`}
+                    onClick={() => void toggleMic()}
+                    disabled={configured === false || sending || transcribing}
+                    aria-pressed={recording}
+                    aria-label={recording ? 'Stop recording' : 'Speak a message'}
+                    title={recording ? 'Stop recording' : 'Speak a message'}
+                  >
+                    {transcribing ? '…' : recording ? 'Stop' : 'Mic'}
+                  </button>
                   <textarea
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
                     onKeyDown={onKeyDown}
                     rows={2}
-                    placeholder={`Message ${persona.displayName}…`}
+                    placeholder={
+                      recording
+                        ? 'Listening… tap Stop when done'
+                        : transcribing
+                          ? 'Transcribing…'
+                          : `Message ${persona.displayName}…`
+                    }
                     aria-label="Message the assistant"
-                    disabled={configured === false}
+                    disabled={configured === false || recording || transcribing}
                   />
                   <button
                     type="submit"
                     className="btn-primary"
-                    disabled={!draft.trim() || sending || configured === false}
+                    disabled={!draft.trim() || sending || configured === false || recording || transcribing}
                   >
                     Send
                   </button>

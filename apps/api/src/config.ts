@@ -92,6 +92,11 @@ const envSchema = z.object({
   // Multimodal model for reading uploaded lab reports, prescriptions, and scans.
   // Must accept images and PDFs.
   MODEL_VISION: z.string().default('anthropic/claude-sonnet-4.5'),
+
+  // OpenRouter audio (assistant mic + speak). Same API key as chat.
+  MODEL_TTS: z.string().default('openai/gpt-4o-mini-tts'),
+  MODEL_STT: z.string().default('openai/whisper-large-v3'),
+  TTS_VOICE: z.string().default('alloy'),
 })
 
 const parsed = envSchema.safeParse(process.env)

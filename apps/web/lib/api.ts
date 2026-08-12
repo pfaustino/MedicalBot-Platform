@@ -42,6 +42,14 @@ export async function apiPost<T>(path: string, body: unknown = {}): Promise<T> {
   return (await res.json()) as T
 }
 
+/** POST that returns a binary body (e.g. assistant TTS audio/mpeg). */
+export async function apiPostBlob(path: string, body: unknown = {}): Promise<Blob> {
+  const res = await apiFetch(path, { method: 'POST', body: JSON.stringify(body) })
+  if (res.status === 401) throw new NotAuthenticated()
+  if (!res.ok) throw new ApiError(path, res.status, await safeBody(res))
+  return res.blob()
+}
+
 export async function apiPatch<T>(path: string, body: unknown = {}): Promise<T> {
   const res = await apiFetch(path, { method: 'PATCH', body: JSON.stringify(body) })
   if (res.status === 401) throw new NotAuthenticated()
