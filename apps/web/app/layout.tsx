@@ -1,6 +1,7 @@
 import { PRODUCT_DESCRIPTION_SHORT } from '@medbot/shared'
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
+import { BuildFooter } from './components/BuildFooter'
 import { Nav } from './components/Nav'
 import { Providers } from './components/Providers'
 import './globals.css'
@@ -22,6 +23,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <Providers>
           <Nav />
           {children}
+          <BuildFooter />
         </Providers>
       </body>
     </html>

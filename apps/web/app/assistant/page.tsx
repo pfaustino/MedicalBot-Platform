@@ -185,7 +185,7 @@ export default function AssistantPage() {
 
   return (
     <AppGate>
-      <main>
+      <main className="assistant-page">
         <div className="page-header">
           <div>
             <h1>Assistant</h1>
@@ -266,46 +266,52 @@ export default function AssistantPage() {
             )}
           </div>
 
-          <form
-            className="chat-composer"
-            onSubmit={(e) => {
-              e.preventDefault()
-              void send(draft)
-            }}
-          >
-            <textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={onKeyDown}
-              rows={2}
-              placeholder={`Message ${persona.displayName}…`}
-              aria-label="Message the assistant"
-              disabled={configured === false}
-            />
-            <button type="submit" className="btn-primary" disabled={!draft.trim() || sending || configured === false}>
-              Send
-            </button>
-          </form>
-        </div>
+          <div className="chat-dock">
+            <div className="chat-suggestions btn-row">
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className="chip"
+                  onClick={() => void send(s)}
+                  disabled={sending || configured === false}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
 
-        <div className="btn-row">
-          {SUGGESTIONS.map((s) => (
-            <button
-              key={s}
-              type="button"
-              className="chip"
-              onClick={() => void send(s)}
-              disabled={sending || configured === false}
+            <form
+              className="chat-composer"
+              onSubmit={(e) => {
+                e.preventDefault()
+                void send(draft)
+              }}
             >
-              {s}
-            </button>
-          ))}
-        </div>
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={onKeyDown}
+                rows={2}
+                placeholder={`Message ${persona.displayName}…`}
+                aria-label="Message the assistant"
+                disabled={configured === false}
+              />
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={!draft.trim() || sending || configured === false}
+              >
+                Send
+              </button>
+            </form>
 
-        <p className="hint">
-          The assistant can log and update your records, but it never diagnoses, prescribes, or
-          changes a dose — and it can only draft messages to your care team, never send them.
-        </p>
+            <p className="hint chat-disclaimer">
+              The assistant can log and update your records, but it never diagnoses, prescribes, or
+              changes a dose — and it can only draft messages to your care team, never send them.
+            </p>
+          </div>
+        </div>
 
         <Modal open={pickerOpen} title="Choose a persona" onClose={() => setPickerOpen(false)} wide>
           <p className="hint">The persona sets tone and style only. Your choice is saved for next time.</p>

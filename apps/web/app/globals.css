@@ -1206,6 +1206,55 @@ textarea.field-error-input {
 
 /* ---------- chat / assistant ---------- */
 
+/*
+ * Lock the assistant page to the viewport: nav + page fill the window,
+ * messages scroll inside .chat-log, and .chat-dock (composer) stays on-screen.
+ */
+body:has(main.assistant-page) {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+body:has(main.assistant-page) .app-nav {
+  flex-shrink: 0;
+}
+
+body:has(main.assistant-page) .build-footer {
+  flex-shrink: 0;
+}
+
+body:has(main.assistant-page) .toast-stack {
+  flex: 0 0 0;
+}
+
+main.assistant-page {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  padding-top: 1rem;
+  padding-bottom: 0.5rem;
+  overflow: hidden;
+}
+
+.assistant-page .page-header,
+.assistant-page .callout {
+  flex-shrink: 0;
+}
+
+.assistant-page .chat {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+}
+
 .chat {
   display: flex;
   flex-direction: column;
@@ -1218,12 +1267,13 @@ textarea.field-error-input {
 }
 
 .chat-log {
-  flex: 1;
+  flex: 1 1 auto;
   overflow-y: auto;
   padding: 1rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  min-height: 0;
 }
 
 .bubble {
@@ -1249,17 +1299,49 @@ textarea.field-error-input {
   border-bottom-left-radius: 0.25rem;
 }
 
+.chat-dock {
+  flex-shrink: 0;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+
+.chat-suggestions {
+  flex-shrink: 0;
+  padding: 0.5rem 0.75rem 0;
+  margin: 0;
+}
+
 .chat-composer {
   display: flex;
   gap: 0.5rem;
   padding: 0.75rem;
-  border-top: 1px solid var(--border);
   background: var(--bg);
+  flex-shrink: 0;
 }
 
 .chat-composer textarea {
   min-height: 2.6rem;
   max-height: 8rem;
+}
+
+.chat-disclaimer {
+  margin: 0;
+  padding: 0 0.75rem 0.65rem;
+  font-size: 0.8rem;
+}
+
+.build-footer {
+  text-align: center;
+  padding: 0.35rem 1rem 0.6rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.build-footer .build-sha {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.02em;
 }
 
 .persona-grid {
