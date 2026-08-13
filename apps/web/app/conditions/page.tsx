@@ -1,14 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AppGate } from '../components/AppGate'
 import { Modal } from '../components/Modal'
 import { useToast } from '../components/Toast'
 import { Loaded } from '../components/Loader'
 import { ConditionPicker, type ConditionSelection } from '../components/ConditionPicker'
-import { apiPost, apiDelete, ApiError, apiErrorMessage } from '@/lib/api'
+import { apiGet, apiPost, apiDelete, ApiError, apiErrorMessage } from '@/lib/api'
 import { METRIC_LABELS, formatDate, titleCase } from '@/lib/format'
-import { getConditionReference } from '@medbot/shared'
+import { getConditionReference, icdCodeFromConditionKey } from '@medbot/shared'
 import type { ConditionKey } from '@medbot/shared'
 
 interface TrackedMetric {
@@ -55,6 +55,7 @@ interface Condition {
   label: string
   summary: string | null
   status: string
+  icdCode: string | null
   diagnosedAt: string | null
   notes: string | null
   hasModule: boolean
@@ -79,52 +80,138 @@ function metricListLabel(types: string[]): string {
   return types.map((t) => METRIC_LABELS[t] ?? t).join(', ')
 }
 
-/** Patient-education panel, shown when the glossary has a reference for this key. */
-function ConditionEducation({ conditionKey }: { conditionKey: string }) {
+interface MedlinePlusReference {
+  found: boolean
+  topics: Array<{ title: string; url: string; summary: string }>
+}
+
+/** Patient-education panel: local glossary when we have one, otherwise MedlinePlus. */
+function ConditionEducation({ conditionKey, icdCode }: { conditionKey: string; icdCode: string | null }) {
   const ref = getConditionReference(conditionKey as ConditionKey)
-  if (!ref) return null
+  if (ref) {
+    return (
+      <details className="stack">
+        <summary>Learn about this condition</summary>
+        <p className="hint">
+          General patient education — background to help you prepare questions, not medical advice.
+        </p>
+
+        <h3>What it means</h3>
+        <p>{ref.whatItMeans}</p>
+
+        <h3>Common symptoms</h3>
+        <ul className="plain-list">
+          {ref.commonSymptoms.map((s) => (
+            <li key={s}>{s}</li>
+          ))}
+        </ul>
+
+        <h3>Why tracking matters</h3>
+        <p>{ref.whyTrackingMatters}</p>
+
+        <h3>Questions for your doctor</h3>
+        <ul className="plain-list">
+          {ref.questionsForYourDoctor.map((q) => (
+            <li key={q}>{q}</li>
+          ))}
+        </ul>
+
+        {ref.learnMore.length > 0 && (
+          <>
+            <h3>Learn more</h3>
+            <ul className="plain-list">
+              {ref.learnMore.map((l) => (
+                <li key={l.url}>
+                  <a href={l.url} target="_blank" rel="noreferrer">
+                    {l.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+
+        <p className="hint">{ref.disclaimer}</p>
+      </details>
+    )
+  }
+
+  const code = icdCode?.trim() || icdCodeFromConditionKey(conditionKey)
+  if (!code) return null
+  return <MedlinePlusEducation code={code} />
+}
+
+function MedlinePlusEducation({ code }: { code: string }) {
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [data, setData] = useState<MedlinePlusReference | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    if (!open || data || failed) return
+    let live = true
+    setLoading(true)
+    apiGet<MedlinePlusReference>(`/api/conditions/reference?code=${encodeURIComponent(code)}`)
+      .then((res) => {
+        if (live) setData(res)
+      })
+      .catch(() => {
+        if (live) setFailed(true)
+      })
+      .finally(() => {
+        if (live) setLoading(false)
+      })
+    return () => {
+      live = false
+    }
+  }, [open, code, data, failed])
+
+  const primary = data?.topics[0]
+  const related = data?.topics.slice(1) ?? []
 
   return (
-    <details className="stack">
+    <details
+      className="stack"
+      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
       <summary>Learn about this condition</summary>
-      <p className="hint">General patient education — background to help you prepare questions, not medical advice.</p>
-
-      <h3>What it means</h3>
-      <p>{ref.whatItMeans}</p>
-
-      <h3>Common symptoms</h3>
-      <ul className="plain-list">
-        {ref.commonSymptoms.map((s) => (
-          <li key={s}>{s}</li>
-        ))}
-      </ul>
-
-      <h3>Why tracking matters</h3>
-      <p>{ref.whyTrackingMatters}</p>
-
-      <h3>Questions for your doctor</h3>
-      <ul className="plain-list">
-        {ref.questionsForYourDoctor.map((q) => (
-          <li key={q}>{q}</li>
-        ))}
-      </ul>
-
-      {ref.learnMore.length > 0 && (
+      {loading && <p className="hint">Looking up MedlinePlus…</p>}
+      {failed && <p className="hint">Could not load a MedlinePlus reference right now.</p>}
+      {data && !data.found && (
+        <p className="hint">MedlinePlus does not have a page for {code} yet.</p>
+      )}
+      {primary && (
         <>
-          <h3>Learn more</h3>
-          <ul className="plain-list">
-            {ref.learnMore.map((l) => (
-              <li key={l.url}>
-                <a href={l.url} target="_blank" rel="noreferrer">
-                  {l.label}
-                </a>
-              </li>
-            ))}
-          </ul>
+          <p className="hint">
+            General patient education from MedlinePlus.gov — not medical advice for your situation.
+          </p>
+          <h3>{primary.title}</h3>
+          {primary.summary && <p>{primary.summary}</p>}
+          <p>
+            <a href={primary.url} target="_blank" rel="noreferrer">
+              Read on MedlinePlus
+            </a>
+          </p>
+          {related.length > 0 && (
+            <>
+              <h3>Related</h3>
+              <ul className="plain-list">
+                {related.map((t) => (
+                  <li key={t.url}>
+                    <a href={t.url} target="_blank" rel="noreferrer">
+                      {t.title}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          <p className="hint">
+            Information from MedlinePlus, U.S. National Library of Medicine. This does not imply
+            MedlinePlus endorsement of this app.
+          </p>
         </>
       )}
-
-      <p className="hint">{ref.disclaimer}</p>
     </details>
   )
 }
@@ -290,7 +377,7 @@ function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }
         </>
       )}
 
-      <ConditionEducation conditionKey={c.key} />
+      <ConditionEducation conditionKey={c.key} icdCode={c.icdCode} />
 
       <div className="btn-row">
         {c.isDynamicModule && (

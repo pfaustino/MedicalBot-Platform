@@ -64,6 +64,16 @@ export function normalizeIcdCode(code: string): string {
   return code.trim().toUpperCase().replace(/\s+/g, '')
 }
 
+/** Rebuild a dotted ICD-10-CM code from a stored `icd:E119` key. */
+export function icdCodeFromConditionKey(key: string): string | null {
+  if (!key.startsWith('icd:')) return null
+  const raw = key.slice(4).toUpperCase().replace(/[^A-Z0-9.]/g, '')
+  if (!raw) return null
+  if (raw.includes('.')) return raw
+  if (raw.length <= 3) return raw
+  return `${raw.slice(0, 3)}.${raw.slice(3)}`
+}
+
 /**
  * ICD prefixes that map to a built-in module key. Used when a free-text or
  * imported diagnosis carries a code but no explicit moduleKey.

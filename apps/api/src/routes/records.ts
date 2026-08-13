@@ -16,6 +16,7 @@ import {
 } from '../lib/openrouter-models.js'
 import { getOpenRouterSettings, getOpenRouterSettingsView } from '../lib/openrouter-settings.js'
 import { searchNlmIcd10 } from '../lib/nlm-icd10.js'
+import { lookupMedlinePlus } from '../lib/medlineplus.js'
 import { requireUser } from './auth.js'
 
 /**
@@ -84,6 +85,21 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
       hasModule: r.moduleKey ? getModule(r.moduleKey) !== null : false,
     }))
     return reply.send({ results })
+  })
+
+  app.get('/conditions/reference', async (request, reply) => {
+    const code = String((request.query as { code?: string }).code ?? '')
+      .trim()
+      .toUpperCase()
+    if (!/^[A-Z][0-9A-Z.]{2,15}$/.test(code)) {
+      return reply.code(400).send({ error: 'A valid ICD-10-CM code is required.' })
+    }
+    try {
+      const reference = await lookupMedlinePlus(code)
+      return reply.send(reference)
+    } catch {
+      return reply.code(502).send({ error: 'Could not reach MedlinePlus Connect.' })
+    }
   })
 
   app.get('/conditions', async (request, reply) => {
