@@ -105,6 +105,21 @@ function metricListLabel(types: string[]): string {
   return types.map((t) => METRIC_LABELS[t] ?? t).join(', ')
 }
 
+function limitKind(m: TrackedMetric): 'floor' | 'ceiling' | 'band' | null {
+  if (m.targetMin !== null && m.targetMax !== null) return 'band'
+  if (m.targetMin !== null) return 'floor'
+  if (m.targetMax !== null) return 'ceiling'
+  return null
+}
+
+function formatLimit(m: TrackedMetric): string {
+  const kind = limitKind(m)
+  if (kind === 'floor') return `Don't go below ${m.targetMin}`
+  if (kind === 'ceiling') return `Keep below ${m.targetMax}`
+  if (kind === 'band') return `${m.targetMin}–${m.targetMax}`
+  return '—'
+}
+
 function latestVsTarget(m: TrackedMetric): 'in' | 'low' | 'high' | null {
   const value = m.recorded?.latestValue
   if (value === null || value === undefined) return null
@@ -120,26 +135,45 @@ function LatestReading({ metric }: { metric: TrackedMetric }) {
     return <span className="hint">No readings</span>
   }
   const vs = latestVsTarget(metric)
+  const kind = limitKind(metric)
   return (
     <>
       {formatMetric(metric.type, rec.latestValue, rec.latestSecondary)}
       {rec.latestAt && <span className="hint"> · {formatDate(rec.latestAt)}</span>}
-      {vs === 'in' && (
+      {kind === 'floor' && vs === 'low' && (
         <>
           {' '}
-          <span className="badge badge-ok">In target</span>
+          <span className="badge badge-warn">Below {metric.targetMin}</span>
         </>
       )}
-      {vs === 'low' && (
+      {kind === 'ceiling' && vs === 'in' && (
         <>
           {' '}
-          <span className="badge badge-warn">Below target</span>
+          <span className="badge badge-ok">Under {metric.targetMax}</span>
         </>
       )}
-      {vs === 'high' && (
+      {kind === 'ceiling' && vs === 'high' && (
         <>
           {' '}
-          <span className="badge badge-warn">Above target</span>
+          <span className="badge badge-warn">Over {metric.targetMax}</span>
+        </>
+      )}
+      {kind === 'band' && vs === 'in' && (
+        <>
+          {' '}
+          <span className="badge badge-ok">In range</span>
+        </>
+      )}
+      {kind === 'band' && vs === 'low' && (
+        <>
+          {' '}
+          <span className="badge badge-warn">Below range</span>
+        </>
+      )}
+      {kind === 'band' && vs === 'high' && (
+        <>
+          {' '}
+          <span className="badge badge-warn">Above range</span>
         </>
       )}
     </>
@@ -162,7 +196,7 @@ function WeekReading({ metric }: { metric: TrackedMetric }) {
         <>
           {' '}
           <span className={`badge ${rec.inRange7d >= 0.7 ? 'badge-ok' : 'badge-warn'}`}>
-            {Math.round(rec.inRange7d * 100)}% in target
+            {Math.round(rec.inRange7d * 100)}% in range
           </span>
         </>
       )}
@@ -423,7 +457,7 @@ function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }
               <thead>
                 <tr>
                   <th>Metric</th>
-                  <th>Target</th>
+                  <th>Limits</th>
                   <th>Latest</th>
                   <th>Last 7 days</th>
                   <th>Prompts / day</th>
@@ -435,11 +469,7 @@ function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }
                     <td>
                       <a href={trackedMetricHref(m)}>{trackedMetricLabel(m)}</a>
                     </td>
-                    <td>
-                      {m.targetMin === null && m.targetMax === null
-                        ? '—'
-                        : `${m.targetMin ?? ''}${m.targetMin !== null && m.targetMax !== null ? '–' : ''}${m.targetMax ?? ''}`}
-                    </td>
+                    <td>{formatLimit(m)}</td>
                     <td>
                       <LatestReading metric={m} />
                     </td>
