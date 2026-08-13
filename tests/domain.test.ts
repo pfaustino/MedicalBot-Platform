@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { PHQ9, enrichLabResult, parseReferenceRange, scoreQuestionnaire } from '@medbot/shared'
-import { mergedMetrics, mergedRedFlags, modulesFor } from '@medbot/conditions'
+import { evaluateTrend, mergedMetrics, mergedRedFlags, modulesFor } from '@medbot/conditions'
 
 describe('PHQ-9 scoring', () => {
   const allZero = Object.fromEntries(PHQ9.questions.map((q) => [q.id, 0]))
@@ -26,6 +26,76 @@ describe('PHQ-9 scoring', () => {
     assert.equal(result.total, 1)
     assert.equal(result.band?.label, 'Minimal')
     assert.deepEqual(result.criticalTriggered, ['q9'])
+  })
+})
+
+describe('trend evaluation', () => {
+  it('fires when a 7-day average rises vs the prior week', () => {
+    const now = new Date('2026-08-13T12:00:00Z')
+    const readings = []
+    for (let d = 1; d <= 14; d++) {
+      const recordedAt = new Date(+now - (14 - d) * 24 * 60 * 60 * 1000)
+      readings.push({
+        type: 'anxiety',
+        value: d <= 7 ? 2 : 5,
+        recordedAt,
+        context: null,
+      })
+    }
+    const result = evaluateTrend(
+      {
+        id: 'rising_anxiety',
+        description: 'Daily anxiety scores climbing',
+        detect: 'test',
+        eval: {
+          metric: 'anxiety',
+          kind: 'avg_vs_prior',
+          windowDays: 7,
+          priorDays: 7,
+          threshold: 2,
+          direction: 'up',
+        },
+      },
+      readings,
+      now,
+    )
+    assert.equal(result.status, 'firing')
+  })
+
+  it('fires eGFR decline from lab_value context aliases', () => {
+    const now = new Date('2026-08-13T12:00:00Z')
+    const result = evaluateTrend(
+      {
+        id: 'egfr_decline',
+        description: 'eGFR trending down',
+        detect: 'test',
+        eval: {
+          metric: 'lab_value',
+          context: 'eGFR',
+          kind: 'latest_vs_earliest',
+          windowDays: 90,
+          threshold: 5,
+          direction: 'down',
+        },
+      },
+      [
+        {
+          type: 'lab_value',
+          value: 32,
+          recordedAt: new Date('2026-06-01T12:00:00Z'),
+          context: 'Estimated GFR',
+        },
+        {
+          type: 'lab_value',
+          value: 22,
+          recordedAt: new Date('2026-08-01T12:00:00Z'),
+          context: 'eGFR',
+        },
+      ],
+      now,
+    )
+    assert.equal(result.status, 'firing')
+    assert.match(result.detail ?? '', /32/)
   })
 })
 

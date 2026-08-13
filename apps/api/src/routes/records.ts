@@ -6,7 +6,7 @@ import {
   mergeConditionSearchWithNlm,
   searchConditionCatalog,
 } from '@medbot/shared'
-import { getModule, resolveModuleForCondition } from '@medbot/conditions'
+import { getModule, resolveModuleForCondition, evaluateTrends } from '@medbot/conditions'
 import { db, schema } from '../db/index.js'
 import {
   fetchOpenRouterModels,
@@ -132,6 +132,22 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const recordedByType = await loadMetricRecordedByType(userId)
+    const trendSince = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000)
+    const trendRows = await db
+      .select({
+        type: schema.metrics.type,
+        value: schema.metrics.value,
+        recordedAt: schema.metrics.recordedAt,
+        context: schema.metrics.context,
+      })
+      .from(schema.metrics)
+      .where(and(eq(schema.metrics.userId, userId), gte(schema.metrics.recordedAt, trendSince)))
+    const trendReadings = trendRows.map((r) => ({
+      type: r.type,
+      value: Number(r.value),
+      recordedAt: r.recordedAt,
+      context: r.context,
+    }))
 
     return reply.send({
       conditions: aligned.map((row) => {
@@ -175,7 +191,7 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
             }
           }),
           thresholds: mod?.redFlags ?? [],
-          trends: mod?.trends ?? [],
+          trends: evaluateTrends(mod?.trends ?? [], trendReadings),
         }
       }),
     })

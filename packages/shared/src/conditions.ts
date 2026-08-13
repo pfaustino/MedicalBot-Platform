@@ -25,10 +25,21 @@ export const storedRedFlagSchema = z.object({
   message: z.string().min(1).max(500),
 })
 
+export const storedTrendEvalSchema = z.object({
+  metric: z.enum(METRIC_TYPES),
+  context: z.string().max(120).optional(),
+  kind: z.enum(['avg_vs_prior', 'rise_in_window', 'avg_above', 'latest_vs_earliest']),
+  windowDays: z.number().int().min(1).max(365),
+  priorDays: z.number().int().min(1).max(365).optional(),
+  threshold: z.number(),
+  direction: z.enum(['up', 'down']).optional(),
+})
+
 export const storedTrendRuleSchema = z.object({
   id: z.string().min(1).max(80),
   description: z.string().min(1).max(200),
   detect: z.string().min(1).max(500),
+  eval: storedTrendEvalSchema.optional(),
 })
 
 export const storedModuleConfigSchema = z.object({

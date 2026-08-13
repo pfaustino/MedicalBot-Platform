@@ -75,7 +75,13 @@ interface Condition {
   isDynamicModule?: boolean
   trackedMetrics: TrackedMetric[]
   thresholds: Threshold[]
-  trends: Array<{ id: string; description: string; detect: string }>
+  trends: Array<{
+    id: string
+    description: string
+    detect: string
+    status?: 'firing' | 'watching' | 'insufficient'
+    detail?: string | null
+  }>
 }
 
 function describeThreshold(t: Threshold): string {
@@ -504,7 +510,9 @@ function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }
                 {c.trends.map((t) => (
                   <li key={t.id}>
                     <strong>{t.description}</strong>
-                    <span className="hint">{t.detect}</span>
+                    {t.status === 'firing' && <span className="badge badge-warn">Active now</span>}
+                    {t.status === 'insufficient' && <span className="badge">Need more readings</span>}
+                    <span className="hint">{t.detail || t.detect}</span>
                   </li>
                 ))}
               </ul>

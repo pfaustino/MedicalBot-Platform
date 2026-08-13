@@ -33,11 +33,26 @@ export interface RedFlag {
   message: string
 }
 
+export interface TrendEval {
+  metric: MetricType
+  /** Lab analyte or glucose meal context when the metric is shared. */
+  context?: string
+  kind: 'avg_vs_prior' | 'rise_in_window' | 'avg_above' | 'latest_vs_earliest'
+  windowDays: number
+  /** For avg_vs_prior: length of the comparison window. Defaults to windowDays. */
+  priorDays?: number
+  threshold: number
+  /** latest_vs_earliest / rise_in_window / avg_vs_prior. */
+  direction?: 'up' | 'down'
+}
+
 export interface TrendRule {
   id: string
   description: string
   /** Human-readable so the analysis model can reason over it. */
   detect: string
+  /** When set, the API can mark this pattern firing from recorded metrics. */
+  eval?: TrendEval
 }
 
 export interface ConditionModule {

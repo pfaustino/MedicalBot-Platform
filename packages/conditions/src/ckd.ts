@@ -65,16 +65,37 @@ export const ckd: ConditionModule = {
       id: 'egfr_decline',
       description: 'eGFR trending down',
       detect: 'Serial eGFR readings declining over 3+ months, especially approaching or crossing 15.',
+      eval: {
+        metric: 'lab_value',
+        context: 'eGFR',
+        kind: 'latest_vs_earliest',
+        windowDays: 90,
+        threshold: 5,
+        direction: 'down',
+      },
     },
     {
       id: 'weight_fluid',
       description: 'Rapid weight gain suggesting fluid retention',
       detect: 'Weight up more than 2 kg over a few days without a clear diet explanation.',
+      eval: {
+        metric: 'weight',
+        kind: 'rise_in_window',
+        windowDays: 4,
+        threshold: 2,
+        direction: 'up',
+      },
     },
     {
       id: 'bp_control',
       description: 'Home BP vs clinic targets',
       detect: 'Home systolic averages above the user-stated or clinic target across a week.',
+      eval: {
+        metric: 'blood_pressure',
+        kind: 'avg_above',
+        windowDays: 7,
+        threshold: 130,
+      },
     },
   ],
   promptGuidance: `The user has chronic kidney disease (often Stage IV). When they report a lab, \

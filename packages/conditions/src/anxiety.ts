@@ -28,6 +28,14 @@ export const anxiety: ConditionModule = {
       id: 'rising_anxiety',
       description: 'Daily anxiety scores climbing',
       detect: 'Average anxiety score over 7 days higher than the prior 7 days by 2+ points.',
+      eval: {
+        metric: 'anxiety',
+        kind: 'avg_vs_prior',
+        windowDays: 7,
+        priorDays: 7,
+        threshold: 2,
+        direction: 'up',
+      },
     },
     {
       id: 'sleep_anxiety_link',

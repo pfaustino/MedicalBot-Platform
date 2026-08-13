@@ -9,6 +9,7 @@ import {
   type AdherenceEvent,
 } from '@medbot/shared'
 import {
+  evaluateTrends,
   mergedMetrics,
   mergedRedFlags,
   resolveModulesForConditions,
@@ -245,6 +246,20 @@ export async function visitPrepRoutes(app: FastifyInstance): Promise<void> {
       .limit(10)
 
     const readings = tracked.map((m) => summarizeTracked(m, metricRows))
+    const trendReadings = metricRows.map((r) => ({
+      type: r.type,
+      value: Number(r.value),
+      recordedAt: r.recordedAt,
+      context: r.context,
+    }))
+    const activePatterns = modules
+      .flatMap((mod) =>
+        evaluateTrends(mod.trends, trendReadings, now).map((t) => ({
+          ...t,
+          condition: mod.label,
+        })),
+      )
+      .filter((t) => t.status === 'firing')
 
     const thresholdCrossings = flags
       .map((flag) => {
@@ -284,6 +299,7 @@ export async function visitPrepRoutes(app: FastifyInstance): Promise<void> {
       careTeam,
       readings,
       thresholdCrossings,
+      activePatterns,
       medications: meds.map((med) => {
         const mine = adherenceEvents.filter((e) => e.medicationId === med.id)
         return {

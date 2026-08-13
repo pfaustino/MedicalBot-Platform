@@ -46,6 +46,12 @@ interface VisitPrep {
     count: number
     latestAt: string | null
   }>
+  activePatterns: Array<{
+    id: string
+    description: string
+    detail: string | null
+    condition: string
+  }>
   medications: Array<{
     name: string
     dose: string
@@ -230,6 +236,23 @@ export default function VisitPrepPage() {
                         {t.latestAt ? ` · last ${formatDate(t.latestAt)}` : ''}
                       </span>
                       <span>{t.message}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section className="card">
+              <h2>Patterns firing now</h2>
+              {(data.activePatterns ?? []).length === 0 ? (
+                <p className="hint">No evaluated patterns are active in this window.</p>
+              ) : (
+                <ul className="plain-list">
+                  {(data.activePatterns ?? []).map((p) => (
+                    <li key={`${p.condition}-${p.id}`}>
+                      <strong>{p.description}</strong>
+                      <span className="hint"> · {p.condition}</span>
+                      {p.detail && <span>{p.detail}</span>}
                     </li>
                   ))}
                 </ul>

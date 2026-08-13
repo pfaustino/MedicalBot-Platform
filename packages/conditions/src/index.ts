@@ -11,6 +11,8 @@ export {
   resolveModulesForConditions,
 } from './dynamic.js'
 export type { ConditionModuleRow } from './dynamic.js'
+export { evaluateTrend, evaluateTrends } from './evaluate-trends.js'
+export type { EvaluatedTrend, TrendReading, TrendStatus } from './evaluate-trends.js'
 export { anxiety } from './anxiety.js'
 export { ckd } from './ckd.js'
 export { diabetesT1, diabetesT2 } from './diabetes.js'

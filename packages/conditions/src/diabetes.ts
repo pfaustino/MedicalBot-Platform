@@ -84,6 +84,15 @@ export const diabetesT2: ConditionModule = {
       id: 'dawn_phenomenon',
       description: 'Fasting readings climbing overnight',
       detect: 'Fasting glucose trending upward over 7+ days while daytime readings stay flat.',
+      eval: {
+        metric: 'blood_glucose',
+        context: 'fasting',
+        kind: 'avg_vs_prior',
+        windowDays: 7,
+        priorDays: 7,
+        threshold: 15,
+        direction: 'up',
+      },
     },
     {
       id: 'postprandial_spikes',
