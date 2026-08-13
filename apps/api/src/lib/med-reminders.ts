@@ -325,7 +325,38 @@ export async function expandMedicationDoses(
       })
     }
   }
-  return out
+
+  const groups = new Map<string, typeof out>()
+  for (const item of out) {
+    const key = item.startsAt.toISOString()
+    const list = groups.get(key) ?? []
+    list.push(item)
+    groups.set(key, list)
+  }
+
+  return [...groups.values()].map((members) => {
+    const first = members[0]!
+    const clock = clockFromDate(first.startsAt, timeZone)
+    return {
+      id: `dose-slot:${clock}:${first.startsAt.toISOString()}`,
+      medicationId: first.medicationId,
+      title: slotTitle(clock),
+      startsAt: first.startsAt,
+      endsAt: first.endsAt,
+      notes: [
+        'MedicalBot dose reminder — log each one in the app for adherence.',
+        '',
+        ...members.map((m) => `• ${m.title.replace(/^Take /, '')}`),
+      ].join('\n'),
+      synced: members.some((m) => m.synced),
+      googleEventId: members.find((m) => m.googleEventId)?.googleEventId ?? null,
+    }
+  })
+}
+
+function clockFromDate(at: Date, timeZone: string): string {
+  const w = wallClock(at, timeZone)
+  return `${String(w.hour).padStart(2, '0')}:${String(w.minute).padStart(2, '0')}`
 }
 
 /** 2-hour post-meal glucose re-check as a timed Calendar event with a phone popup. */

@@ -151,7 +151,7 @@ function ReminderDetail({
         <strong>{item.title}</strong>
       </p>
       <p className="hint">{when}</p>
-      {item.notes && <p>{item.notes}</p>}
+      {item.notes && <p style={{ whiteSpace: 'pre-wrap' }}>{item.notes}</p>}
       {isGlucose ? (
         <>
           <p className="hint">
