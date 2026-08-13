@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm'
+import { formatWallClock } from '@medbot/shared'
 import { config } from '../config.js'
 import { db, schema } from '../db/index.js'
 import { decrypt, encrypt } from './crypto.js'
@@ -107,6 +108,8 @@ export type GoogleCalendarEvent = {
   allDay: boolean
   location: string | null
   htmlLink: string | null
+  recurringEventId: string | null
+  medbot: string | null
 }
 
 async function googleErrorDetail(res: Response): Promise<string> {
@@ -142,7 +145,7 @@ function mapCalendarListError(status: number, detail: string): Error {
   return new Error(`Google Calendar list failed (${status}): ${detail}`)
 }
 
-/** List primary-calendar events in [timeMin, timeMax). */
+/** List primary-calendar events in [timeMin, timeMax). Paginates past the 250 cap. */
 export async function listGoogleCalendarEvents(
   userId: string,
   timeMin: Date,
@@ -151,20 +154,21 @@ export async function listGoogleCalendarEvents(
   let token = await getGoogleAccessToken(userId)
   if (!token || !hasCalendarScope(token.scopes)) return []
 
-  const params = new URLSearchParams({
-    timeMin: timeMin.toISOString(),
-    timeMax: timeMax.toISOString(),
-    singleEvents: 'true',
-    orderBy: 'startTime',
-    maxResults: '250',
-  })
-  const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`
-
-  async function fetchList(accessToken: string): Promise<Response> {
-    return fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+  async function fetchPage(accessToken: string, pageToken?: string): Promise<Response> {
+    const params = new URLSearchParams({
+      timeMin: timeMin.toISOString(),
+      timeMax: timeMax.toISOString(),
+      singleEvents: 'true',
+      orderBy: 'startTime',
+      maxResults: '250',
+    })
+    if (pageToken) params.set('pageToken', pageToken)
+    return fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
   }
 
-  let res = await fetchList(token.accessToken)
+  let res = await fetchPage(token.accessToken)
 
   // Access token may be stale even if expiresAt says otherwise — refresh once.
   if (res.status === 401) {
@@ -188,26 +192,34 @@ export async function listGoogleCalendarEvents(
         accessToken: refreshed.access_token,
         scopes: refreshed.scope ? mergeScopes(token.scopes, refreshed.scope) : token.scopes,
       }
-      res = await fetchList(token.accessToken)
+      res = await fetchPage(token.accessToken)
     }
   }
 
-  if (!res.ok) {
-    throw mapCalendarListError(res.status, await googleErrorDetail(res))
+  type GoogleListItem = {
+    id?: string
+    summary?: string
+    location?: string
+    htmlLink?: string
+    recurringEventId?: string
+    start?: { dateTime?: string; date?: string }
+    end?: { dateTime?: string; date?: string }
+    extendedProperties?: { private?: Record<string, string> }
   }
 
-  const data = (await res.json()) as {
-    items?: Array<{
-      id?: string
-      summary?: string
-      location?: string
-      htmlLink?: string
-      start?: { dateTime?: string; date?: string }
-      end?: { dateTime?: string; date?: string }
-    }>
+  const items: GoogleListItem[] = []
+  let page = res
+  for (let n = 0; n < 20; n++) {
+    if (!page.ok) {
+      throw mapCalendarListError(page.status, await googleErrorDetail(page))
+    }
+    const data = (await page.json()) as { items?: GoogleListItem[]; nextPageToken?: string }
+    items.push(...(data.items ?? []))
+    if (!data.nextPageToken) break
+    page = await fetchPage(token.accessToken, data.nextPageToken)
   }
 
-  return (data.items ?? [])
+  return items
     .filter((e) => e.id)
     .map((e) => {
       const allDay = Boolean(e.start?.date && !e.start?.dateTime)
@@ -221,6 +233,8 @@ export async function listGoogleCalendarEvents(
         allDay,
         location: e.location ?? null,
         htmlLink: e.htmlLink ?? null,
+        recurringEventId: e.recurringEventId ?? null,
+        medbot: e.extendedProperties?.private?.medbot ?? null,
       }
     })
     .filter((e) => e.startsAt)
@@ -234,7 +248,11 @@ function googleEventTimes(event: {
   startsAt: Date
   endsAt?: Date | null
   allDay?: boolean
-}): { start: { date?: string; dateTime?: string }; end: { date?: string; dateTime?: string } } {
+  timeZone?: string
+}): {
+  start: { date?: string; dateTime?: string; timeZone?: string }
+  end: { date?: string; dateTime?: string; timeZone?: string }
+} {
   if (event.allDay) {
     const startDay = new Date(event.startsAt.getFullYear(), event.startsAt.getMonth(), event.startsAt.getDate())
     const endExclusive = event.endsAt
@@ -246,27 +264,59 @@ function googleEventTimes(event: {
     return { start: { date: ymdLocal(startDay) }, end: { date: ymdLocal(endExclusive) } }
   }
   const endAt = event.endsAt ?? new Date(event.startsAt.getTime() + 60 * 60 * 1000)
+  if (event.timeZone) {
+    return {
+      start: { dateTime: formatWallClock(event.startsAt, event.timeZone), timeZone: event.timeZone },
+      end: { dateTime: formatWallClock(endAt, event.timeZone), timeZone: event.timeZone },
+    }
+  }
   return {
     start: { dateTime: event.startsAt.toISOString() },
     end: { dateTime: endAt.toISOString() },
   }
 }
 
+export type GoogleCalendarWrite = {
+  title: string
+  startsAt: Date
+  endsAt?: Date | null
+  location?: string | null
+  description?: string | null
+  allDay?: boolean
+  timeZone?: string
+  recurrence?: string[]
+  reminderMinutes?: number[]
+  medbot?: string
+}
+
+function eventBody(event: GoogleCalendarWrite): Record<string, unknown> {
+  const { start, end } = googleEventTimes(event)
+  const body: Record<string, unknown> = {
+    summary: event.title,
+    location: event.location ?? undefined,
+    description: event.description ?? undefined,
+    start,
+    end,
+  }
+  if (event.recurrence?.length) body.recurrence = event.recurrence
+  if (event.reminderMinutes) {
+    body.reminders = {
+      useDefault: false,
+      overrides: event.reminderMinutes.map((minutes) => ({ method: 'popup', minutes })),
+    }
+  }
+  if (event.medbot) {
+    body.extendedProperties = { private: { medbot: event.medbot } }
+  }
+  return body
+}
+
 export async function createGoogleCalendarEvent(
   userId: string,
-  event: {
-    title: string
-    startsAt: Date
-    endsAt?: Date | null
-    location?: string | null
-    description?: string | null
-    allDay?: boolean
-  },
+  event: GoogleCalendarWrite,
 ): Promise<string | null> {
   const token = await getGoogleAccessToken(userId)
   if (!token || !hasCalendarScope(token.scopes)) return null
-
-  const { start, end } = googleEventTimes(event)
 
   const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
     method: 'POST',
@@ -274,13 +324,7 @@ export async function createGoogleCalendarEvent(
       Authorization: `Bearer ${token.accessToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      summary: event.title,
-      location: event.location ?? undefined,
-      description: event.description ?? undefined,
-      start,
-      end,
-    }),
+    body: JSON.stringify(eventBody(event)),
   })
 
   if (!res.ok) {
@@ -294,21 +338,13 @@ export async function createGoogleCalendarEvent(
 export async function updateGoogleCalendarEvent(
   userId: string,
   eventId: string,
-  event: {
-    title: string
-    startsAt: Date
-    endsAt?: Date | null
-    location?: string | null
-    description?: string | null
-    allDay?: boolean
-  },
+  event: GoogleCalendarWrite,
 ): Promise<void> {
   const token = await getGoogleAccessToken(userId)
   if (!token || !hasCalendarScope(token.scopes)) {
     throw new Error('Google Calendar is not connected')
   }
 
-  const { start, end } = googleEventTimes(event)
   const res = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`,
     {
@@ -317,13 +353,7 @@ export async function updateGoogleCalendarEvent(
         Authorization: `Bearer ${token.accessToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        summary: event.title,
-        location: event.location ?? undefined,
-        description: event.description ?? undefined,
-        start,
-        end,
-      }),
+      body: JSON.stringify(eventBody(event)),
     },
   )
 

@@ -1787,6 +1787,10 @@ body:has(.assistant-fab) .toast-stack {
   background: color-mix(in srgb, var(--accent) 28%, var(--surface));
 }
 
+.cal-event.kind-reminder {
+  background: color-mix(in srgb, #2a9d8f 22%, var(--surface));
+}
+
 .cal-event-time {
   opacity: 0.75;
   margin-right: 0.3rem;
@@ -1974,6 +1978,10 @@ body:has(.assistant-fab) .toast-stack {
 
 .pill.kind-google {
   border-color: color-mix(in srgb, #5b8def 50%, var(--border));
+}
+
+.pill.kind-reminder {
+  border-color: color-mix(in srgb, #2a9d8f 50%, var(--border));
 }
 
 @media (max-width: 720px) {

@@ -8,11 +8,12 @@ import {
   listGoogleCalendarEvents,
   updateGoogleCalendarEvent,
 } from '../lib/google.js'
+import { expandMedicationDoses, syncAllMedicationReminders } from '../lib/med-reminders.js'
 import { requireUser } from './auth.js'
 
 export type CalendarItem = {
   id: string
-  kind: 'appointment' | 'todo' | 'google'
+  kind: 'appointment' | 'todo' | 'google' | 'reminder'
   title: string
   startsAt: string
   endsAt: string | null
@@ -133,6 +134,25 @@ export async function calendarRoutes(app: FastifyInstance): Promise<void> {
       })
     }
 
+    const doses = await expandMedicationDoses(userId, pastFrom, futureTo)
+    for (const d of doses) {
+      items.push({
+        id: d.id,
+        kind: 'reminder',
+        title: d.title,
+        startsAt: d.startsAt.toISOString(),
+        endsAt: d.endsAt.toISOString(),
+        allDay: false,
+        location: null,
+        notes: d.notes,
+        status: null,
+        type: 'medication',
+        googleEventId: d.googleEventId,
+        htmlLink: null,
+        synced: d.synced,
+      })
+    }
+
     let googleError: string | null = null
     if (connection.connected) {
       try {
@@ -140,12 +160,18 @@ export async function calendarRoutes(app: FastifyInstance): Promise<void> {
         const localGoogleIds = new Set(
           appointments.map((a) => a.googleEventId).filter((id): id is string => Boolean(id)),
         )
+        const reminderSeriesIds = new Set(
+          doses.map((d) => d.googleEventId).filter((id): id is string => Boolean(id)),
+        )
         for (const g of googleEvents) {
-          // Skip events we already surface as synced appointments.
           if (localGoogleIds.has(g.id)) continue
+          if (g.medbot === 'med' || (g.recurringEventId && reminderSeriesIds.has(g.recurringEventId))) {
+            continue
+          }
+          const isGlucose = g.medbot === 'glucose'
           items.push({
             id: g.id,
-            kind: 'google',
+            kind: isGlucose ? 'reminder' : 'google',
             title: g.title,
             startsAt: g.startsAt,
             endsAt: g.endsAt,
@@ -153,7 +179,7 @@ export async function calendarRoutes(app: FastifyInstance): Promise<void> {
             location: g.location,
             notes: null,
             status: null,
-            type: null,
+            type: isGlucose ? 'glucose' : null,
             googleEventId: g.id,
             htmlLink: g.htmlLink,
             synced: true,
@@ -182,6 +208,19 @@ export async function calendarRoutes(app: FastifyInstance): Promise<void> {
       past: past.reverse(),
       range: { from: pastFrom.toISOString(), to: futureTo.toISOString() },
     })
+  })
+
+  app.post('/calendar/reminders/sync', async (request, reply) => {
+    const userId = request.session.userId!
+    try {
+      const result = await syncAllMedicationReminders(userId)
+      return reply.send({ ok: true, ...result })
+    } catch (err) {
+      request.log.warn({ err }, 'Medication reminder sync failed')
+      return reply.code(502).send({
+        error: err instanceof Error ? err.message : 'Could not sync dose reminders to Google Calendar',
+      })
+    }
   })
 
   const googleEventBody = z.object({

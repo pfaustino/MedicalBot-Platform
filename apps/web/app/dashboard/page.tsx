@@ -165,7 +165,7 @@ export default function DashboardPage() {
               <Link href="/calendar" className="action-card">
                 <span className="action-icon">📅</span>
                 <span className="action-title">Calendar</span>
-                <span className="action-sub">Visits, to-dos, and Google events</span>
+                <span className="action-sub">Visits, dose reminders, and Google events</span>
               </Link>
               <button type="button" className="action-card" onClick={openAssistant}>
                 <span className="action-icon">💬</span>

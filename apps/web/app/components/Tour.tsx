@@ -51,7 +51,7 @@ function steps(isAdmin: boolean): Step[] {
     {
       anchor: 'nav-calendar',
       title: 'Calendar',
-      body: 'Appointments, dated To Dos, and Google Calendar events in one place — with optional sync to your phone.',
+      body: 'Appointments, dose reminders, and Google Calendar in one place — connect Calendar so your phone alarms at dose times.',
     },
     {
       anchor: 'nav-records',

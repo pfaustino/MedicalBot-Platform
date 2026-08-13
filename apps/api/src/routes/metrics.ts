@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { METRIC_TYPES, labAliasForMetricType, labContextMatches, labContextNames, normalizeMetricInput } from '@medbot/shared'
 import { mergedRedFlags, resolveModulesForConditions } from '@medbot/conditions'
 import { db, schema } from '../db/index.js'
+import { createGlucoseFollowUp } from '../lib/med-reminders.js'
 import { requireUser } from './auth.js'
 
 const createBody = z.object({
@@ -59,6 +60,14 @@ export async function metricRoutes(app: FastifyInstance): Promise<void> {
       .returning({ id: schema.metrics.id })
 
     const alerts = await checkRedFlags(userId, entry.type, entry.value, entry.context)
+
+    if (entry.type === 'blood_glucose' && entry.context === 'post_meal') {
+      try {
+        await createGlucoseFollowUp(userId, entry.recordedAt)
+      } catch (err) {
+        request.log.warn({ err }, 'Could not create glucose follow-up on Google Calendar')
+      }
+    }
 
     return reply.code(201).send({ id: row!.id, alerts })
   })

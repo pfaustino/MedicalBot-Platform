@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { addCalendarDays, wallClock, zonedDate } from './zoned-time.js'
 
 /**
  * Schedules are structured, never freetext. Reminder jobs and adherence scoring
@@ -67,4 +68,62 @@ export function adherenceRate(events: readonly AdherenceEvent[]): number {
   if (events.length === 0) return 1
   const took = events.filter((e) => e.status === 'taken' || e.status === 'late').length
   return took / events.length
+}
+
+const RRULE_BYDAY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'] as const
+
+/**
+ * Recurrence for a fixed-time medication schedule. Null when the schedule
+ * cannot become a calendar series (as-needed, interval, cyclic, or no times).
+ */
+export function medicationRRule(schedule: Schedule, untilYmd?: string | null): string | null {
+  if (schedule.kind !== 'fixed_times' || schedule.times.length === 0) return null
+  const until =
+    untilYmd && /^\d{4}-\d{2}-\d{2}$/.test(untilYmd)
+      ? `;UNTIL=${untilYmd.replace(/-/g, '')}`
+      : ''
+  if (schedule.daysOfWeek.length === 0) return `RRULE:FREQ=DAILY${until}`
+  const days = [...schedule.daysOfWeek]
+    .sort((a, b) => a - b)
+    .map((d) => RRULE_BYDAY[d])
+    .join(',')
+  return `RRULE:FREQ=WEEKLY;BYDAY=${days}${until}`
+}
+
+export interface DoseSlot {
+  time: string
+  at: Date
+}
+
+/**
+ * Expand fixed-time dose slots between `from` and `to` in `timeZone`.
+ * Empty daysOfWeek means every day.
+ */
+export function upcomingDoseSlots(
+  schedule: Schedule,
+  opts: { timeZone: string; from: Date; to: Date },
+): DoseSlot[] {
+  if (schedule.kind !== 'fixed_times' || schedule.times.length === 0) return []
+  const days = schedule.daysOfWeek.length > 0 ? new Set(schedule.daysOfWeek) : null
+  const start = wallClock(opts.from, opts.timeZone)
+  const end = wallClock(opts.to, opts.timeZone)
+  const out: DoseSlot[] = []
+  let cursor = { year: start.year, month: start.month, day: start.day }
+  const endKey = end.year * 10000 + end.month * 100 + end.day
+  for (let i = 0; i < 400; i++) {
+    const key = cursor.year * 10000 + cursor.month * 100 + cursor.day
+    if (key > endKey) break
+    const noon = zonedDate(opts.timeZone, cursor.year, cursor.month, cursor.day, 12, 0)
+    const weekday = wallClock(noon, opts.timeZone).weekday
+    if (!days || days.has(weekday)) {
+      for (const time of schedule.times) {
+        const hh = Number(time.slice(0, 2))
+        const mm = Number(time.slice(3, 5))
+        const at = zonedDate(opts.timeZone, cursor.year, cursor.month, cursor.day, hh, mm)
+        if (at >= opts.from && at <= opts.to) out.push({ time, at })
+      }
+    }
+    cursor = addCalendarDays(cursor.year, cursor.month, cursor.day, 1)
+  }
+  return out
 }

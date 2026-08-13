@@ -30,6 +30,7 @@ import {
   deleteGoogleCalendarEvent,
   updateGoogleCalendarEvent,
 } from '../lib/google.js'
+import { syncMedicationReminders } from '../lib/med-reminders.js'
 import {
   clearOpenRouterApiKey,
   isOpenRouterConfigured,
@@ -474,6 +475,19 @@ export async function manageRoutes(app: FastifyInstance): Promise<void> {
         isActive: m.isActive,
       })
       .returning({ id: schema.medications.id })
+    try {
+      await syncMedicationReminders(userId, {
+        id: row!.id,
+        name: m.name,
+        dose: m.dose,
+        schedule: m.schedule,
+        isActive: m.isActive,
+        endedAt: toDateStr(m.endedAt),
+        googleEventIds: {},
+      })
+    } catch (err) {
+      request.log.warn({ err }, 'Could not sync medication reminders to Google Calendar')
+    }
     return reply.code(201).send({ id: row!.id })
   })
 
@@ -497,6 +511,13 @@ export async function manageRoutes(app: FastifyInstance): Promise<void> {
     const { id } = request.params as { id: string }
     const u = parsed.data
 
+    const [existing] = await db
+      .select()
+      .from(schema.medications)
+      .where(and(eq(schema.medications.userId, userId), eq(schema.medications.id, id)))
+      .limit(1)
+    if (!existing) return reply.code(404).send({ error: 'Not found' })
+
     const set: Record<string, unknown> = {}
     if (u.isActive !== undefined) set.isActive = u.isActive
     if (u.refillsRemaining !== undefined) set.refillsRemaining = u.refillsRemaining
@@ -513,6 +534,21 @@ export async function manageRoutes(app: FastifyInstance): Promise<void> {
       .update(schema.medications)
       .set(set)
       .where(and(eq(schema.medications.userId, userId), eq(schema.medications.id, id)))
+
+    try {
+      await syncMedicationReminders(userId, {
+        id: existing.id,
+        name: existing.name,
+        dose: typeof set.dose === 'string' ? set.dose : existing.dose,
+        schedule: set.schedule ?? existing.schedule,
+        isActive: typeof set.isActive === 'boolean' ? set.isActive : existing.isActive,
+        endedAt:
+          set.endedAt !== undefined ? (set.endedAt as string | null) : existing.endedAt,
+        googleEventIds: existing.googleEventIds ?? {},
+      })
+    } catch (err) {
+      request.log.warn({ err }, 'Could not sync medication reminders to Google Calendar')
+    }
     return reply.send({ ok: true })
   })
 

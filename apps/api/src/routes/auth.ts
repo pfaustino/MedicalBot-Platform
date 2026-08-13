@@ -6,6 +6,7 @@ import { TERMS_VERSION } from '@medbot/shared'
 import { config, googleConfigured } from '../config.js'
 import { db, schema } from '../db/index.js'
 import { upsertGoogleAccount } from '../lib/google.js'
+import { syncAllMedicationReminders } from '../lib/med-reminders.js'
 import { hashPassword, verifyPassword } from '../lib/password.js'
 import { rateLimit } from '../lib/rate-limit.js'
 
@@ -146,6 +147,11 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       // Incremental connect: attach scopes to the already-signed-in user.
       if (connect === 'calendar' && request.session.userId) {
         await upsertGoogleAccount(request.session.userId, tokens)
+        try {
+          await syncAllMedicationReminders(request.session.userId)
+        } catch (err) {
+          request.log.warn({ err }, 'Could not sync medication reminders after Calendar connect')
+        }
         return reply.redirect(`${config.APP_URL}/calendar?google=connected`)
       }
 

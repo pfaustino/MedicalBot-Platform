@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { PHQ9, enrichLabResult, parseReferenceRange, scoreQuestionnaire } from '@medbot/shared'
+import { PHQ9, enrichLabResult, medicationRRule, parseReferenceRange, scoreQuestionnaire, upcomingDoseSlots, zonedDate } from '@medbot/shared'
 import { evaluateTrend, mergedMetrics, mergedRedFlags, modulesFor } from '@medbot/conditions'
 
 describe('PHQ-9 scoring', () => {
@@ -166,5 +166,53 @@ describe('lab import (BMP template)', () => {
     })
     assert.equal(row.flag, 'abnormal')
     assert.equal(row.note, 'See comment on lab report')
+  })
+})
+
+describe('dose schedule expansion', () => {
+  const twiceDaily = {
+    kind: 'fixed_times' as const,
+    times: ['08:00', '20:00'],
+    intervalHours: null,
+    daysOfWeek: [] as number[],
+    cycleOnDays: null,
+    cycleOffDays: null,
+    withFood: false,
+    instructions: null,
+  }
+
+  it('emits a daily RRULE for fixed times with no weekday filter', () => {
+    assert.equal(medicationRRule(twiceDaily), 'RRULE:FREQ=DAILY')
+  })
+
+  it('emits weekly BYDAY and UNTIL when set', () => {
+    assert.equal(
+      medicationRRule({ ...twiceDaily, daysOfWeek: [1, 3, 5] }, '2026-12-31'),
+      'RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR;UNTIL=20261231',
+    )
+  })
+
+  it('expands two slots on a weekday in America/New_York', () => {
+    const from = zonedDate('America/New_York', 2026, 8, 13, 0, 0)
+    const to = zonedDate('America/New_York', 2026, 8, 13, 23, 59)
+    const slots = upcomingDoseSlots(twiceDaily, { timeZone: 'America/New_York', from, to })
+    assert.deepEqual(
+      slots.map((s) => s.time),
+      ['08:00', '20:00'],
+    )
+  })
+
+  it('respects daysOfWeek', () => {
+    const from = zonedDate('America/New_York', 2026, 8, 15, 0, 0) // Saturday
+    const to = zonedDate('America/New_York', 2026, 8, 15, 23, 59)
+    const slots = upcomingDoseSlots(
+      { ...twiceDaily, daysOfWeek: [1, 3, 5] },
+      { timeZone: 'America/New_York', from, to },
+    )
+    assert.equal(slots.length, 0)
+  })
+
+  it('skips as-needed schedules', () => {
+    assert.equal(medicationRRule({ ...twiceDaily, kind: 'as_needed', times: [] }), null)
   })
 })

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { AppGate } from '../components/AppGate'
 import { Modal } from '../components/Modal'
 import { useToast } from '../components/Toast'
@@ -8,12 +9,12 @@ import { Loaded } from '../components/Loader'
 import { apiDelete, apiPatch, apiPost } from '@/lib/api'
 import { titleCase, APPT_TYPE_LABELS } from '@/lib/format'
 
-type KindFilter = 'appointment' | 'todo' | 'google' | 'all'
+type KindFilter = 'appointment' | 'todo' | 'google' | 'reminder' | 'all'
 type ViewMode = 'day' | 'week' | 'month'
 
 interface CalendarItem {
   id: string
-  kind: 'appointment' | 'todo' | 'google'
+  kind: 'appointment' | 'todo' | 'google' | 'reminder'
   title: string
   startsAt: string
   endsAt: string | null
@@ -37,6 +38,7 @@ const KIND_LABEL: Record<CalendarItem['kind'], string> = {
   appointment: 'Appointment',
   todo: 'To Do',
   google: 'Google',
+  reminder: 'Reminder',
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -103,6 +105,87 @@ function rangeLabel(view: ViewMode, cursor: Date): string {
   return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
 }
 
+function ReminderDetail({
+  item,
+  onChanged,
+  onClose,
+}: {
+  item: CalendarItem
+  onChanged: () => void
+  onClose: () => void
+}) {
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+  const when = new Date(item.startsAt).toLocaleString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+  const isGlucose = item.type === 'glucose'
+
+  async function cancelFollowUp() {
+    if (!item.googleEventId) return
+    if (!window.confirm('Cancel this glucose re-check on Google Calendar?')) return
+    setBusy(true)
+    try {
+      await apiDelete(`/api/calendar/google/${encodeURIComponent(item.googleEventId)}`)
+      toast.show('Follow-up cancelled.', 'ok')
+      onChanged()
+      onClose()
+    } catch {
+      toast.show('Could not cancel that reminder.', 'err')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div>
+      <div className="chip-row" style={{ marginBottom: '0.75rem' }}>
+        <span className={`pill kind-${item.kind}`}>{isGlucose ? 'Glucose' : 'Dose'}</span>
+        {item.synced && <span className="pill">Phone alarm</span>}
+      </div>
+      <p>
+        <strong>{item.title}</strong>
+      </p>
+      <p className="hint">{when}</p>
+      {item.notes && <p>{item.notes}</p>}
+      {isGlucose ? (
+        <>
+          <p className="hint">
+            This lands on your Google Calendar two hours after a post-meal reading so your phone
+            can nudge you to re-check.
+          </p>
+          {item.googleEventId && (
+            <div className="form-actions">
+              <button type="button" className="btn-danger" disabled={busy} onClick={() => void cancelFollowUp()}>
+                {busy ? 'Cancelling…' : 'Cancel follow-up'}
+              </button>
+            </div>
+          )}
+        </>
+      ) : (
+        <p className="hint">
+          Log this dose on{' '}
+          <Link href="/medications">Medications</Link>
+          {item.synced
+            ? '. A popup at this time is on your Google Calendar so your phone can alarm.'
+            : '. Connect Google Calendar to put a phone alarm on this time.'}
+        </p>
+      )}
+      {item.htmlLink && (
+        <p className="hint" style={{ marginTop: '0.75rem' }}>
+          <a href={item.htmlLink} target="_blank" rel="noreferrer">
+            Open in Google Calendar
+          </a>
+        </p>
+      )}
+    </div>
+  )
+}
+
 function EventEditor({
   item,
   onChanged,
@@ -129,6 +212,10 @@ function EventEditor({
   const [type, setType] = useState(item.type ?? 'office_visit')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  if (item.kind === 'reminder') {
+    return <ReminderDetail item={item} onChanged={onChanged} onClose={onClose} />
+  }
 
   function resolveTimes(): { startsAt: Date; endsAt: Date } | null {
     if (allDay) {
@@ -890,7 +977,26 @@ export default function CalendarPage() {
   const [draft, setDraft] = useState<EventDraft | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [filter, setFilter] = useState<KindFilter>('all')
+  const [syncing, setSyncing] = useState(false)
   const refetch = () => setReloadKey((k) => k + 1)
+
+  async function syncReminders() {
+    setSyncing(true)
+    try {
+      const r = await apiPost<{ synced: number }>('/api/calendar/reminders/sync')
+      toast.show(
+        r.synced
+          ? `Phone alarms set for ${r.synced} medication${r.synced === 1 ? '' : 's'}.`
+          : 'No fixed dose times to sync.',
+        'ok',
+      )
+      refetch()
+    } catch {
+      toast.show('Could not sync dose reminders to Google Calendar.', 'err')
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -908,7 +1014,7 @@ export default function CalendarPage() {
         <div className="page-header">
           <div>
             <h1>Calendar</h1>
-            <p className="muted">Appointments, dated To Dos, and Google Calendar in one place.</p>
+            <p className="muted">Appointments, dose times, and Google Calendar in one place.</p>
           </div>
           <div className="page-actions">
             <button type="button" className="btn-primary" onClick={() => setDraft(defaultTimedDraft())}>
@@ -927,8 +1033,8 @@ export default function CalendarPage() {
                     <strong>Google Calendar</strong>
                     <span className="muted">
                       {d.google.connected
-                        ? ' — connected; new appointments sync automatically.'
-                        : ' — connect to show Google events and sync new appointments.'}
+                        ? ' — connected. Appointments and dose times sync; your phone alarms from Calendar popups.'
+                        : ' — connect so dose times and appointments can alarm on your phone.'}
                     </span>
                     {d.google.error && (
                       <p className="field-error" style={{ margin: '0.35rem 0 0' }}>
@@ -938,9 +1044,19 @@ export default function CalendarPage() {
                     )}
                   </div>
                   {d.google.connected ? (
-                    <a className="btn-ghost btn-sm" href="/auth/google/connect/calendar">
-                      Reconnect
-                    </a>
+                    <div className="btn-row">
+                      <button
+                        type="button"
+                        className="btn-ghost btn-sm"
+                        disabled={syncing}
+                        onClick={() => void syncReminders()}
+                      >
+                        {syncing ? 'Syncing…' : 'Sync dose reminders'}
+                      </button>
+                      <a className="btn-ghost btn-sm" href="/auth/google/connect/calendar">
+                        Reconnect
+                      </a>
+                    </div>
                   ) : (
                     <a className="btn-secondary btn-sm" href="/auth/google/connect/calendar">
                       Connect
@@ -953,6 +1069,7 @@ export default function CalendarPage() {
                     [
                       ['all', 'All'],
                       ['appointment', 'Appointments'],
+                      ['reminder', 'Reminders'],
                       ['todo', 'To Dos'],
                       ['google', 'Google'],
                     ] as const

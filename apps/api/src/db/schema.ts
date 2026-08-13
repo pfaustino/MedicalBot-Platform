@@ -169,6 +169,8 @@ export const medications = pgTable(
     endedAt: date('ended_at'),
     refillsRemaining: integer('refills_remaining'),
     isActive: boolean('is_active').notNull().default(true),
+    /** Google Calendar series ids keyed by dose time ("08:00" → event id). */
+    googleEventIds: jsonb('google_event_ids').$type<Record<string, string>>().notNull().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('medications_user_active_idx').on(t.userId, t.isActive)],

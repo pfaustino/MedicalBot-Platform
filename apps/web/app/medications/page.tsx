@@ -602,7 +602,8 @@ export default function MedicationsPage() {
 
         <p className="muted">
           Log doses by day, see the last 30 days on each card, and mark several meds taken at once. Late
-          counts as taken for adherence.
+          counts as taken for adherence. Fixed times also show on Calendar; connect Google Calendar to
+          get a phone alarm at each dose.
         </p>
 
         <Loaded<{ medications: Medication[] }> key={reloadKey} path="/api/medications">
