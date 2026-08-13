@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { PHQ9, enrichLabResult, inferTimesFromText, medicationRRule, parseReferenceRange, scoreQuestionnaire, upcomingDoseSlots, zonedDate } from '@medbot/shared'
+import { PHQ9, enrichLabResult, inferTimesFromText, medicationRRule, parseReferenceRange, parseUsdaFood, scaleFoodNutrition, scoreQuestionnaire, upcomingDoseSlots, zonedDate } from '@medbot/shared'
 import { evaluateTrend, mergedMetrics, mergedRedFlags, modulesFor } from '@medbot/conditions'
 
 describe('PHQ-9 scoring', () => {
@@ -239,5 +239,99 @@ describe('dose schedule expansion', () => {
 
   it('does not infer times for true PRN text', () => {
     assert.deepEqual(inferTimesFromText('as needed for pain'), [])
+  })
+})
+
+describe('USDA food portion scaling', () => {
+  const banana = parseUsdaFood({
+    fdcId: 173944,
+    description: 'Bananas, raw',
+    dataType: 'SR Legacy',
+    foodNutrients: [
+      { nutrientId: 1008, value: 89 },
+      { nutrientId: 2000, value: 12.2 },
+      { nutrientId: 1005, value: 22.8 },
+      { nutrientId: 1079, value: 2.6 },
+    ],
+    foodPortions: [{ id: 1, amount: 1, gramWeight: 118, modifier: 'medium' }],
+  })
+
+  it('parses per-100g nutrients and household portions', () => {
+    assert.ok(banana)
+    assert.equal(banana.basisGrams, 100)
+    assert.equal(banana.calories, 89)
+    assert.equal(banana.sugarsG, 12.2)
+    const medium = banana.portions.find((p) => p.grams === 118)
+    assert.ok(medium)
+    const scaled = scaleFoodNutrition(banana, medium, 1)
+    assert.equal(scaled.calories, 105)
+    assert.equal(scaled.netSugarG, 14.4)
+    assert.equal(scaled.sugarSource, 'sugars')
+    assert.equal(scaled.grams, 118)
+  })
+
+  it('falls back to carbs minus fiber when sugars are missing', () => {
+    const oats = parseUsdaFood({
+      fdcId: 1,
+      description: 'Oats',
+      dataType: 'Foundation',
+      foodNutrients: [
+        { nutrient: { id: 1008 }, amount: 389 },
+        { nutrient: { id: 1005 }, amount: 66 },
+        { nutrient: { id: 1079 }, amount: 11 },
+      ],
+    })
+    assert.ok(oats)
+    const hundred = oats.portions.find((p) => p.id === '100g')
+    assert.ok(hundred)
+    const scaled = scaleFoodNutrition(oats, hundred, 1)
+    assert.equal(scaled.netSugarG, 55)
+    assert.equal(scaled.sugarSource, 'carbs_minus_fiber')
+  })
+
+  it('prefers USDA sequence order and skips unspecified quantities', () => {
+    const food = parseUsdaFood({
+      fdcId: 3,
+      description: 'Banana, raw',
+      dataType: 'Survey (FNDDS)',
+      foodNutrients: [{ nutrient: { id: 1008 }, amount: 97 }],
+      foodPortions: [
+        { id: 2, gramWeight: 225, portionDescription: '1 cup, mashed', sequenceNumber: 4 },
+        { id: 1, gramWeight: 126, portionDescription: '1 banana', sequenceNumber: 1 },
+        { id: 3, gramWeight: 999, portionDescription: 'Quantity not specified', sequenceNumber: 6 },
+      ],
+    })
+    assert.ok(food)
+    const household = food.portions.filter((p) => p.id.startsWith('p:'))
+    assert.equal(household[0]?.label, '1 banana (126 g)')
+    assert.equal(household.length, 2)
+  })
+
+  it('scales branded foods from the labeled serving', () => {
+    const yogurt = parseUsdaFood({
+      fdcId: 2,
+      description: 'GREEK YOGURT',
+      dataType: 'Branded',
+      brandOwner: 'Example',
+      servingSize: 150,
+      servingSizeUnit: 'g',
+      householdServingFullText: '1 container',
+      foodNutrients: [
+        { nutrientId: 1008, value: 120 },
+        { nutrientId: 2000, value: 6 },
+      ],
+    })
+    assert.ok(yogurt)
+    assert.equal(yogurt.basisGrams, 150)
+    const serving = yogurt.portions.find((p) => p.id === 'serving')
+    assert.ok(serving)
+    const one = scaleFoodNutrition(yogurt, serving, 1)
+    assert.equal(one.calories, 120)
+    assert.equal(one.netSugarG, 6)
+    const hundred = yogurt.portions.find((p) => p.id === '100g')
+    assert.ok(hundred)
+    const per100 = scaleFoodNutrition(yogurt, hundred, 1)
+    assert.equal(per100.calories, 80)
+    assert.equal(per100.netSugarG, 4)
   })
 })

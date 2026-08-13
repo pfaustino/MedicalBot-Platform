@@ -25,6 +25,7 @@ import { onboardingRoutes } from './routes/onboarding.js'
 import { recordRoutes } from './routes/records.js'
 import { visitPrepRoutes } from './routes/visit-prep.js'
 import { digestRoutes } from './routes/digest.js'
+import { foodRoutes } from './routes/food.js'
 
 const app = Fastify({
   logger: {
@@ -111,6 +112,7 @@ await app.register(visitPrepRoutes, { prefix: '/api' })
 await app.register(digestRoutes, { prefix: '/api' })
 await app.register(calendarRoutes, { prefix: '/api' })
 await app.register(metricRoutes, { prefix: '/api' })
+await app.register(foodRoutes, { prefix: '/api' })
 await app.register(onboardingRoutes, { prefix: '/api' })
 await app.register(manageRoutes, { prefix: '/api' })
 await app.register(assessmentRoutes, { prefix: '/api' })

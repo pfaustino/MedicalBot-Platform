@@ -82,6 +82,16 @@ const envSchema = z.object({
     .transform((v) => (v && v.trim() !== '' ? v : undefined))
     .pipe(z.string().min(8).optional()),
 
+  /**
+   * USDA FoodData Central. DEMO_KEY works for light personal use; a free key
+   * from https://fdc.nal.usda.gov/api-key-signup raises the rate limit.
+   */
+  USDA_FDC_API_KEY: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : 'DEMO_KEY')),
+
   OPENROUTER_API_KEY: z.string().optional(),
   OPENROUTER_BASE_URL: z.string().url().default('https://openrouter.ai/api/v1'),
 

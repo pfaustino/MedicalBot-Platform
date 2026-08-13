@@ -1,8 +1,18 @@
 'use client'
 
-import { useState } from 'react'
-import { EPISODE_LABELS, EPISODE_TYPES, type EpisodeType } from '@medbot/shared'
+import { useEffect, useState } from 'react'
+import {
+  EPISODE_LABELS,
+  EPISODE_TYPES,
+  FOOD_PORTION_CUSTOM_GRAMS,
+  FOOD_PORTION_HUNDRED_G,
+  formatFoodLogNote,
+  scaleFoodNutrition,
+  type EpisodeType,
+  type FoodNutrition,
+} from '@medbot/shared'
 import { apiPost } from '@/lib/api'
+import { FoodLookup } from './FoodLookup'
 import { useToast } from './Toast'
 import { METRIC_UNITS } from '@/lib/format'
 
@@ -46,6 +56,13 @@ const FOOD_MEALS = [
   { value: 'snack', label: 'Snack' },
   { value: 'other_meal', label: 'Other' },
 ] as const
+
+function defaultPortionId(food: FoodNutrition): string {
+  const household = food.portions.find(
+    (p) => p.id !== FOOD_PORTION_CUSTOM_GRAMS && p.id !== FOOD_PORTION_HUNDRED_G && p.grams != null,
+  )
+  return (household ?? food.portions.find((p) => p.id === FOOD_PORTION_HUNDRED_G) ?? food.portions[0])?.id ?? ''
+}
 
 type LogMode = 'reading' | 'episode' | 'food'
 
@@ -93,10 +110,38 @@ export function MetricEntryForm({
   const [mealType, setMealType] = useState('lunch')
   const [calories, setCalories] = useState('')
   const [netSugar, setNetSugar] = useState('')
+  const [selectedFood, setSelectedFood] = useState<FoodNutrition | null>(null)
+  const [portionId, setPortionId] = useState('')
+  const [portionAmount, setPortionAmount] = useState('1')
 
   const isBp = type === 'blood_pressure'
   const isGlucose = type === 'blood_glucose'
   const unit = METRIC_UNITS[type] ?? ''
+  const selectedPortion = selectedFood
+    ? selectedFood.portions.find((p) => p.id === portionId) ?? selectedFood.portions[0]
+    : undefined
+
+  useEffect(() => {
+    if (!selectedFood || !selectedPortion) return
+    const amount = Number(portionAmount)
+    if (portionAmount.trim() === '' || Number.isNaN(amount) || amount < 0) return
+    const scaled = scaleFoodNutrition(selectedFood, selectedPortion, amount)
+    setCalories(scaled.calories == null ? '' : String(scaled.calories))
+    setNetSugar(scaled.netSugarG == null ? '' : String(scaled.netSugarG))
+    setFoodName(formatFoodLogNote(selectedFood, selectedPortion, amount))
+  }, [selectedFood, selectedPortion, portionAmount])
+
+  function applyFood(food: FoodNutrition) {
+    const id = defaultPortionId(food)
+    setSelectedFood(food)
+    setPortionId(id)
+    setPortionAmount(id === FOOD_PORTION_CUSTOM_GRAMS ? '100' : '1')
+  }
+
+  function changePortion(id: string) {
+    setPortionId(id)
+    setPortionAmount(id === FOOD_PORTION_CUSTOM_GRAMS ? '100' : '1')
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -175,6 +220,9 @@ export function MetricEntryForm({
         setFoodName('')
         setCalories('')
         setNetSugar('')
+        setSelectedFood(null)
+        setPortionId('')
+        setPortionAmount('1')
         onDone?.()
       } catch {
         setError('Could not save that food log. Please try again.')
@@ -371,6 +419,37 @@ export function MetricEntryForm({
 
       {mode === 'food' && (
         <div className="form-grid">
+          <label className="field field-wide">
+            <span>Look up a food</span>
+            <FoodLookup onSelect={applyFood} />
+            <span className="help-text">
+              USDA estimates scaled to the portion you pick. You can still type calories and sugar yourself.
+            </span>
+          </label>
+          {selectedFood && selectedFood.portions.length > 0 && (
+            <>
+              <label className="field">
+                <span>Portion</span>
+                <select value={portionId} onChange={(e) => changePortion(e.target.value)}>
+                  {selectedFood.portions.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>{portionId === FOOD_PORTION_CUSTOM_GRAMS ? 'Grams' : 'How many'}</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={portionAmount}
+                  onChange={(e) => setPortionAmount(e.target.value)}
+                />
+              </label>
+            </>
+          )}
           <label className="field">
             <span>What you ate</span>
             <input
@@ -412,7 +491,14 @@ export function MetricEntryForm({
               onChange={(e) => setNetSugar(e.target.value)}
               placeholder="12"
             />
-            <span className="help-text">Label sugars, or carbs minus fiber if that is what you track.</span>
+            <span className="help-text">
+              {selectedFood && selectedPortion
+                ? scaleFoodNutrition(selectedFood, selectedPortion, Number(portionAmount) || 0).sugarSource ===
+                  'carbs_minus_fiber'
+                  ? 'USDA had no sugars listed — this is carbs minus fiber. Edit if you track label sugars.'
+                  : 'Total sugars from USDA, scaled to this portion. Edit if your label differs.'
+                : 'Label sugars, or carbs minus fiber if that is what you track.'}
+            </span>
           </label>
           <label className="field">
             <span>When</span>

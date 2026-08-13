@@ -1112,6 +1112,10 @@ select {
   gap: 0 1rem;
 }
 
+.form-grid > .field-wide {
+  grid-column: 1 / -1;
+}
+
 .form-actions {
   display: flex;
   gap: 0.6rem;
