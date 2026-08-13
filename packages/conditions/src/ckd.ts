@@ -18,7 +18,7 @@ export const ckd: ConditionModule = {
       dailyPrompts: 0,
       targetMin: 15,
       targetMax: null,
-      contexts: ['eGFR', 'creatinine', 'BUN', 'potassium'],
+      contexts: ['eGFR'],
     },
     { type: 'blood_pressure', dailyPrompts: 1, targetMin: null, targetMax: 130 },
     { type: 'weight', dailyPrompts: 0, targetMin: null, targetMax: null },
@@ -28,6 +28,7 @@ export const ckd: ConditionModule = {
     {
       id: 'egfr_critical',
       metric: 'lab_value',
+      context: 'eGFR',
       operator: 'lt',
       threshold: 15,
       occurrences: 1,

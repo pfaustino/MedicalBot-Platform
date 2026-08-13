@@ -21,6 +21,8 @@ export interface TrackedMetric {
 export interface RedFlag {
   id: string
   metric: MetricType
+  /** For lab_value (and similar), limit this flag to one analyte. */
+  context?: string
   /** Fires when a reading is outside this band. */
   operator: 'lt' | 'gt'
   threshold: number

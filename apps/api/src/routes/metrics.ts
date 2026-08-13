@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
-import { and, count, desc, eq, gte, max } from 'drizzle-orm'
+import { and, count, desc, eq, gte, max, sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { METRIC_TYPES, normalizeMetricInput } from '@medbot/shared'
+import { METRIC_TYPES, labContextMatches, labContextNames, normalizeMetricInput } from '@medbot/shared'
 import { mergedRedFlags, resolveModulesForConditions } from '@medbot/conditions'
 import { db, schema } from '../db/index.js'
 import { requireUser } from './auth.js'
@@ -58,7 +58,7 @@ export async function metricRoutes(app: FastifyInstance): Promise<void> {
       })
       .returning({ id: schema.metrics.id })
 
-    const alerts = await checkRedFlags(userId, entry.type, entry.value)
+    const alerts = await checkRedFlags(userId, entry.type, entry.value, entry.context)
 
     return reply.code(201).send({ id: row!.id, alerts })
   })
@@ -153,7 +153,19 @@ export async function metricRoutes(app: FastifyInstance): Promise<void> {
       filters.push(gte(schema.metrics.recordedAt, since))
     }
     if (type) filters.push(eq(schema.metrics.type, type))
-    if (context) filters.push(eq(schema.metrics.context, context))
+    if (context) {
+      if (type === 'lab_value') {
+        const names = labContextNames(context).map((n) => n.toLowerCase())
+        filters.push(
+          sql`lower(coalesce(${schema.metrics.context}, '')) in (${sql.join(
+            names.map((n) => sql`${n}`),
+            sql`, `,
+          )})`,
+        )
+      } else {
+        filters.push(eq(schema.metrics.context, context))
+      }
+    }
 
     const rows = await db
       .select()
@@ -181,6 +193,7 @@ async function checkRedFlags(
   userId: string,
   metricType: string,
   value: number,
+  readingContext: string | null,
 ): Promise<Array<{ id: string; severity: string; message: string }>> {
   const userConditions = await db
     .select({
@@ -199,6 +212,8 @@ async function checkRedFlags(
   const triggered: Array<{ id: string; severity: string; message: string }> = []
 
   for (const flag of flags) {
+    if (flag.context && !labContextMatches(readingContext, flag.context)) continue
+
     const breaches = flag.operator === 'lt' ? value < flag.threshold : value > flag.threshold
     if (!breaches) continue
 
@@ -209,7 +224,7 @@ async function checkRedFlags(
 
     const since = new Date(Date.now() - flag.windowHours * 60 * 60 * 1000)
     const recent = await db
-      .select({ value: schema.metrics.value })
+      .select({ value: schema.metrics.value, context: schema.metrics.context })
       .from(schema.metrics)
       .where(
         and(
@@ -220,6 +235,7 @@ async function checkRedFlags(
       )
 
     const matching = recent.filter((r) => {
+      if (flag.context && !labContextMatches(r.context, flag.context)) return false
       const v = Number(r.value)
       return flag.operator === 'lt' ? v < flag.threshold : v > flag.threshold
     }).length

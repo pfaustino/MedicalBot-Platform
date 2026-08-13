@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { EPISODE_LABELS, EPISODE_TYPES } from '@medbot/shared'
+import { EPISODE_LABELS, EPISODE_TYPES, labContextMatches } from '@medbot/shared'
 import { AppGate } from '../components/AppGate'
 import { Modal } from '../components/Modal'
 import { MetricEntryForm } from '../components/MetricEntryForm'
@@ -126,7 +126,14 @@ export default function MetricsPage() {
         setSelection((cur) => {
           if (cur) return cur
           const fromUrl = new URLSearchParams(window.location.search).get('type')
-          if (fromUrl) return fromUrl
+          if (fromUrl) {
+            const parsed = parseSelection(fromUrl)
+            if (parsed.type === 'lab_value' && parsed.context) {
+              const match = labRes.analytes.find((a) => labContextMatches(a.name, parsed.context!))
+              if (match) return selectionKey('lab_value', match.name)
+            }
+            return fromUrl
+          }
           const topSymptom = symptomRes.symptoms[0]
           if (topSymptom) return selectionKey('symptom_severity', topSymptom.name)
           const topLab = labRes.analytes[0]

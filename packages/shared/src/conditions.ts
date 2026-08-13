@@ -16,6 +16,7 @@ export const storedTrackedMetricSchema = z.object({
 export const storedRedFlagSchema = z.object({
   id: z.string().min(1).max(80),
   metric: z.enum(METRIC_TYPES),
+  context: z.string().max(120).optional(),
   operator: z.enum(['lt', 'gt']),
   threshold: z.number(),
   occurrences: z.number().int().min(1),

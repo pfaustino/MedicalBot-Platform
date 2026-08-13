@@ -26,12 +26,14 @@ interface TrackedMetric {
   dailyPrompts: number
   targetMin: number | null
   targetMax: number | null
+  contexts?: string[]
   recorded?: RecordedMetric
 }
 
 interface Threshold {
   id: string
   metric: string
+  context?: string
   operator: 'lt' | 'gt'
   threshold: number
   occurrences: number
@@ -78,13 +80,25 @@ interface Condition {
 
 function describeThreshold(t: Threshold): string {
   const dir = t.operator === 'lt' ? 'below' : 'above'
-  const label = METRIC_LABELS[t.metric] ?? t.metric
+  const label = t.context || METRIC_LABELS[t.metric] || t.metric
   if (t.occurrences <= 1) return `${label} ${dir} ${t.threshold}`
   const window =
     t.windowHours >= 168
       ? `${Math.round(t.windowHours / 168)} week(s)`
       : `${Math.round(t.windowHours / 24)} day(s)`
   return `${label} ${dir} ${t.threshold}, ${t.occurrences}× within ${window}`
+}
+
+function trackedMetricLabel(m: TrackedMetric): string {
+  if (m.type === 'lab_value' && m.contexts?.[0]) return m.contexts[0]
+  return METRIC_LABELS[m.type] ?? m.type
+}
+
+function trackedMetricHref(m: TrackedMetric): string {
+  if (m.type === 'lab_value' && m.contexts?.[0]) {
+    return `/metrics?type=${encodeURIComponent(`lab:${m.contexts[0]}`)}`
+  }
+  return `/metrics?type=${encodeURIComponent(m.type)}`
 }
 
 function metricListLabel(types: string[]): string {
@@ -417,11 +431,9 @@ function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }
               </thead>
               <tbody>
                 {c.trackedMetrics.map((m) => (
-                  <tr key={m.type}>
+                  <tr key={`${m.type}:${m.contexts?.[0] ?? ''}`}>
                     <td>
-                      <a href={`/metrics?type=${encodeURIComponent(m.type)}`}>
-                        {METRIC_LABELS[m.type] ?? m.type}
-                      </a>
+                      <a href={trackedMetricHref(m)}>{trackedMetricLabel(m)}</a>
                     </td>
                     <td>
                       {m.targetMin === null && m.targetMax === null

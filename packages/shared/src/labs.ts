@@ -95,6 +95,23 @@ export function findLabReference(testName: string) {
   )
 }
 
+/** Glossary name when we recognize the test; otherwise the original string. */
+export function canonicalLabName(testName: string): string {
+  return findLabReference(testName)?.name ?? testName.trim()
+}
+
+export function labContextMatches(stored: string | null | undefined, wanted: string): boolean {
+  if (!stored?.trim()) return false
+  return canonicalLabName(stored).toLowerCase() === canonicalLabName(wanted).toLowerCase()
+}
+
+/** Names and aliases to match a lab filter against stored metrics.context. */
+export function labContextNames(wanted: string): string[] {
+  const ref = findLabReference(wanted)
+  if (!ref) return [wanted]
+  return [...new Set([ref.name, ...ref.aliases])]
+}
+
 export function inferLabFlag(
   value: string,
   range?: { low?: number | null; high?: number | null },
