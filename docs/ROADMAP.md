@@ -11,7 +11,7 @@ This list is the work that still closes that gap. Phased build docs stay in
 |----------|------|-----|--------|
 | 1 | **90-day visit prep packet** | The promise people feel: walk into a visit with one sheet | Shipped |
 | 2 | **Declared patterns actually fire** | Module trends (“eGFR trending down”) are copy until a job evaluates them | Shipped |
-| 3 | **Weekly digest** | Seven days of adherence, time-in-range, new labs, limit crossings | Next |
+| 3 | **Weekly digest** | Seven days of adherence, time-in-range, new labs, limit crossings | Shipped |
 | 4 | **Calendar as the reminder channel** | Med and glucose nudges as events with phone alarms; adherence is the highest-value signal | Later |
 | 5 | **Lab ↔ metric join** | Imported labs fill the rows modules already track (A1C done; glucose, creatinine, potassium, lipids still split) | Later |
 | 6 | **Scheduled assessments** | PHQ-9 / GAD-7 / diabetes distress / adherence on a cadence, scores on the same charts as glucose | Later |

@@ -46,11 +46,17 @@ interface Dashboard {
   }>
 }
 
+interface Digest {
+  headline: string
+  bullets: string[]
+}
+
 export default function DashboardPage() {
   const toast = useToast()
   const me = useMe()
   const { openAssistant } = useAssistant()
   const [data, setData] = useState<Dashboard | null>(null)
+  const [digest, setDigest] = useState<Digest | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [logging, setLogging] = useState(false)
@@ -87,6 +93,7 @@ export default function DashboardPage() {
   useEffect(() => {
     let cancelled = false
     setData(null)
+    setDigest(null)
     setError(null)
     apiGet<Dashboard>('/api/dashboard')
       .then((d) => {
@@ -98,6 +105,13 @@ export default function DashboardPage() {
             e instanceof NotAuthenticated ? 'Not signed in.' : 'Could not load your dashboard.',
           )
         }
+      })
+    apiGet<Digest>('/api/digest')
+      .then((d) => {
+        if (!cancelled) setDigest(d)
+      })
+      .catch(() => {
+        if (!cancelled) setDigest(null)
       })
     return () => {
       cancelled = true
@@ -159,6 +173,27 @@ export default function DashboardPage() {
                 <span className="action-sub">Ask about your tracked patterns</span>
               </button>
             </div>
+
+            {digest && (
+              <section className="card">
+                <h2>This week</h2>
+                <p>
+                  <strong>{digest.headline}</strong>
+                </p>
+                {digest.bullets.length > 0 && (
+                  <ul className="plain-list">
+                    {digest.bullets.map((b) => (
+                      <li key={b}>{b}</li>
+                    ))}
+                  </ul>
+                )}
+                <p className="hint">
+                  <Link href="/visit-prep">90-day visit prep</Link>
+                  {' · '}
+                  <Link href="/conditions">Patterns on conditions</Link>
+                </p>
+              </section>
+            )}
 
             <section>
               <h2>Last 7 days</h2>
