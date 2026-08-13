@@ -204,6 +204,47 @@ export function searchConditionCatalog(query: string, limit = 20): ConditionSear
   return results.slice(0, limit)
 }
 
+export function conditionSearchFromIcd(code: string, name: string): ConditionSearchResult {
+  const normalized = normalizeIcdCode(code)
+  const moduleKey = inferModuleKey({ name, icdCode: normalized })
+  return {
+    key: buildConditionKey({ name, moduleKey, icdCode: normalized }),
+    name,
+    icdCode: code.trim(),
+    moduleKey,
+    hasModule: false,
+    source: 'icd',
+  }
+}
+
+/** Prefer NIH ICD-10-CM hits over the local starter list; keep modules and custom. */
+export function mergeConditionSearchWithNlm(
+  local: ConditionSearchResult[],
+  nlm: Array<{ code: string; name: string }>,
+  limit: number,
+): ConditionSearchResult[] {
+  if (nlm.length === 0) return local.slice(0, limit)
+
+  const results: ConditionSearchResult[] = []
+  const seen = new Set<string>()
+  const add = (r: ConditionSearchResult) => {
+    if (seen.has(r.key)) return
+    seen.add(r.key)
+    results.push(r)
+  }
+
+  for (const r of local) {
+    if (r.source === 'module') add(r)
+  }
+  for (const entry of nlm) {
+    add(conditionSearchFromIcd(entry.code, entry.name))
+  }
+  for (const r of local) {
+    if (r.source === 'custom') add(r)
+  }
+  return results.slice(0, limit)
+}
+
 /** Create payload for POST /conditions — supports any diagnosis, not just enum keys. */
 export const conditionCreateSchema = z.object({
   name: z.string().min(1).max(200),

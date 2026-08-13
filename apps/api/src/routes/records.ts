@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gte } from 'drizzle-orm'
 import { adherenceRate, type AdherenceEvent } from '@medbot/shared'
 import {
   conditionDisplayLabel,
+  mergeConditionSearchWithNlm,
   searchConditionCatalog,
 } from '@medbot/shared'
 import { getModule, resolveModuleForCondition } from '@medbot/conditions'
@@ -14,6 +15,7 @@ import {
   type ModelKind,
 } from '../lib/openrouter-models.js'
 import { getOpenRouterSettings, getOpenRouterSettingsView } from '../lib/openrouter-settings.js'
+import { searchNlmIcd10 } from '../lib/nlm-icd10.js'
 import { requireUser } from './auth.js'
 
 /**
@@ -75,7 +77,9 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/conditions/search', async (request, reply) => {
     const q = String((request.query as { q?: string }).q ?? '')
-    const results = searchConditionCatalog(q, 25).map((r) => ({
+    const local = searchConditionCatalog(q, 25)
+    const nlm = await searchNlmIcd10(q, 20)
+    const results = mergeConditionSearchWithNlm(local, nlm, 25).map((r) => ({
       ...r,
       hasModule: r.moduleKey ? getModule(r.moduleKey) !== null : false,
     }))

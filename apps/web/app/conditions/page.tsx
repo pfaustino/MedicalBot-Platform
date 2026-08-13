@@ -387,7 +387,8 @@ function ConditionForm({ onDone }: { onDone: () => void }) {
             autoFocus
           />
           <p className="help-text">
-            Search tracked conditions, ICD-10 codes, or add any diagnosis in your own words.
+            Search the NIH ICD-10-CM catalog (~75,000 diagnoses), tracked conditions, or add any
+            diagnosis in your own words.
           </p>
         </label>
         <label className="field">

@@ -1,7 +1,6 @@
 /**
- * Starter ICD-10 diagnoses for typeahead search. The full catalog is ~70k codes —
- * load from an external file or API later; this seeds common chronic conditions and
- * lets the search UX scale without shipping everything in the bundle.
+ * Starter ICD-10 diagnoses for typeahead when the NIH catalog is unreachable.
+ * Live search uses NLM Clinical Tables (ICD-10-CM, ~75k codes).
  */
 export interface IcdConditionEntry {
   code: string
