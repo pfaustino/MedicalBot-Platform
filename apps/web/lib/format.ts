@@ -17,6 +17,8 @@ export const METRIC_LABELS: Record<string, string> = {
   side_effect_severity: 'Side effects',
   questionnaire_score: 'Assessment score',
   lab_value: 'Lab value',
+  calories: 'Calories',
+  net_sugar: 'Net sugar',
 }
 
 export const CONTEXT_LABELS: Record<string, string> = {
@@ -47,6 +49,11 @@ export const CONTEXT_LABELS: Record<string, string> = {
   confusion: 'Confusion',
   weakness: 'Weakness',
   other: 'Other episode',
+  breakfast: 'Breakfast',
+  lunch: 'Lunch',
+  dinner: 'Dinner',
+  snack: 'Snack',
+  other_meal: 'Other meal',
 }
 
 /** Blood pressure is the only metric that renders two numbers. */
@@ -163,6 +170,8 @@ export const METRIC_UNITS: Record<string, string> = {
   side_effect_severity: '0–10',
   questionnaire_score: 'points',
   lab_value: '',
+  calories: 'kcal',
+  net_sugar: 'g',
 }
 
 /** Round-trips a stored ISO date into the value an <input type="date"> wants. */

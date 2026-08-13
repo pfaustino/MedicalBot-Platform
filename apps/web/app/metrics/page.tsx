@@ -79,6 +79,8 @@ const DEFAULT_TYPES = [
   'mood',
   'sleep_hours',
   'heart_rate',
+  'calories',
+  'net_sugar',
 ]
 
 const RANGES = [

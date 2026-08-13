@@ -23,6 +23,8 @@ export const METRIC_TYPES = [
   'side_effect_severity',
   'questionnaire_score',
   'lab_value',
+  'calories',
+  'net_sugar',
 ] as const
 export type MetricType = (typeof METRIC_TYPES)[number]
 
@@ -106,6 +108,8 @@ export const CANONICAL_UNITS: Record<MetricType, string> = {
   side_effect_severity: 'score_0_10',
   questionnaire_score: 'points',
   lab_value: 'varies',
+  calories: 'kcal',
+  net_sugar: 'g',
 }
 
 export const metricEntrySchema = z.object({

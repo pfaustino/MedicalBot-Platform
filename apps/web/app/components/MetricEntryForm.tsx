@@ -39,6 +39,16 @@ const GLUCOSE_CONTEXTS = [
   { value: 'hypo_event', label: 'Low event' },
 ]
 
+const FOOD_MEALS = [
+  { value: 'breakfast', label: 'Breakfast' },
+  { value: 'lunch', label: 'Lunch' },
+  { value: 'dinner', label: 'Dinner' },
+  { value: 'snack', label: 'Snack' },
+  { value: 'other_meal', label: 'Other' },
+] as const
+
+type LogMode = 'reading' | 'episode' | 'food'
+
 const SEVERITY_PRESETS = [
   { value: 3, label: 'Mild' },
   { value: 6, label: 'Moderate' },
@@ -58,12 +68,12 @@ export function MetricEntryForm({
   onDone,
 }: {
   defaultType?: string
-  defaultMode?: 'reading' | 'episode'
+  defaultMode?: LogMode
   defaultEpisode?: string
   onDone?: () => void
 }) {
   const toast = useToast()
-  const [mode, setMode] = useState<'reading' | 'episode'>(defaultMode)
+  const [mode, setMode] = useState<LogMode>(defaultMode)
   const [type, setType] = useState(defaultType === 'symptom_severity' ? 'blood_glucose' : defaultType)
   const [episode, setEpisode] = useState<EpisodeType>(
     EPISODE_TYPES.includes(defaultEpisode as EpisodeType)
@@ -79,6 +89,10 @@ export function MetricEntryForm({
   const [busy, setBusy] = useState(false)
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [foodName, setFoodName] = useState('')
+  const [mealType, setMealType] = useState('lunch')
+  const [calories, setCalories] = useState('')
+  const [netSugar, setNetSugar] = useState('')
 
   const isBp = type === 'blood_pressure'
   const isGlucose = type === 'blood_glucose'
@@ -114,6 +128,56 @@ export function MetricEntryForm({
         onDone?.()
       } catch {
         setError('Could not save that episode. Please try again.')
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
+
+    if (mode === 'food') {
+      const cal = calories.trim() === '' ? null : Number(calories)
+      const sugar = netSugar.trim() === '' ? null : Number(netSugar)
+      if (cal === null && sugar === null) {
+        setError('Enter calories, net sugar, or both.')
+        return
+      }
+      if (cal !== null && (Number.isNaN(cal) || cal < 0)) {
+        setError('Calories must be zero or a positive number.')
+        return
+      }
+      if (sugar !== null && (Number.isNaN(sugar) || sugar < 0)) {
+        setError('Net sugar must be zero or a positive number of grams.')
+        return
+      }
+      setBusy(true)
+      try {
+        const when = new Date(recordedAt).toISOString()
+        const foodNote = foodName.trim() || null
+        if (cal !== null) {
+          await apiPost('/api/metrics', {
+            type: 'calories',
+            value: cal,
+            context: mealType,
+            recordedAt: when,
+            note: foodNote,
+          })
+        }
+        if (sugar !== null) {
+          await apiPost('/api/metrics', {
+            type: 'net_sugar',
+            value: sugar,
+            context: mealType,
+            recordedAt: when,
+            note: foodNote,
+          })
+        }
+        toast.show('Food logged.', 'ok')
+        setFoodName('')
+        setCalories('')
+        setNetSugar('')
+        onDone?.()
+      } catch {
+        setError('Could not save that food log. Please try again.')
       } finally {
         setBusy(false)
       }
@@ -174,9 +238,16 @@ export function MetricEntryForm({
         >
           Episode
         </button>
+        <button
+          type="button"
+          className={mode === 'food' ? 'chip chip-active' : 'chip'}
+          onClick={() => setMode('food')}
+        >
+          Food
+        </button>
       </div>
 
-      {mode === 'reading' ? (
+      {mode === 'reading' && (
         <div className="form-grid">
           <label className="field">
             <span>Metric</span>
@@ -239,7 +310,9 @@ export function MetricEntryForm({
             />
           </label>
         </div>
-      ) : (
+      )}
+
+      {mode === 'episode' && (
         <div className="form-grid">
           <label className="field">
             <span>Episode</span>
@@ -296,6 +369,63 @@ export function MetricEntryForm({
         </div>
       )}
 
+      {mode === 'food' && (
+        <div className="form-grid">
+          <label className="field">
+            <span>What you ate</span>
+            <input
+              type="text"
+              value={foodName}
+              onChange={(e) => setFoodName(e.target.value)}
+              placeholder="Turkey sandwich, apple"
+              autoFocus
+            />
+          </label>
+          <label className="field">
+            <span>Meal</span>
+            <select value={mealType} onChange={(e) => setMealType(e.target.value)}>
+              {FOOD_MEALS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Calories (kcal)</span>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={calories}
+              onChange={(e) => setCalories(e.target.value)}
+              placeholder="450"
+            />
+          </label>
+          <label className="field">
+            <span>Net sugar (g)</span>
+            <input
+              type="number"
+              min={0}
+              step="any"
+              value={netSugar}
+              onChange={(e) => setNetSugar(e.target.value)}
+              placeholder="12"
+            />
+            <span className="help-text">Label sugars, or carbs minus fiber if that is what you track.</span>
+          </label>
+          <label className="field">
+            <span>When</span>
+            <input
+              type="datetime-local"
+              value={recordedAt}
+              onChange={(e) => setRecordedAt(e.target.value)}
+            />
+          </label>
+        </div>
+      )}
+
+      {mode !== 'food' && (
       <label className="field">
         <span>Note (optional)</span>
         <input
@@ -309,6 +439,7 @@ export function MetricEntryForm({
           }
         />
       </label>
+      )}
 
       {error && <p className="field-error">{error}</p>}
 
@@ -324,7 +455,7 @@ export function MetricEntryForm({
 
       <div className="form-actions">
         <button type="submit" className="btn-primary" disabled={busy}>
-          {busy ? 'Saving…' : mode === 'episode' ? 'Log episode' : 'Log reading'}
+          {busy ? 'Saving…' : mode === 'episode' ? 'Log episode' : mode === 'food' ? 'Log food' : 'Log reading'}
         </button>
       </div>
     </form>
