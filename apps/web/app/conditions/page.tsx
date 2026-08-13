@@ -7,15 +7,26 @@ import { useToast } from '../components/Toast'
 import { Loaded } from '../components/Loader'
 import { ConditionPicker, type ConditionSelection } from '../components/ConditionPicker'
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError, apiErrorMessage } from '@/lib/api'
-import { METRIC_LABELS, formatDate, titleCase } from '@/lib/format'
+import { METRIC_LABELS, formatDate, formatMetric, titleCase } from '@/lib/format'
 import { getConditionReference, icdCodeFromConditionKey } from '@medbot/shared'
 import type { ConditionKey } from '@medbot/shared'
+
+interface RecordedMetric {
+  count: number
+  latestValue: number | null
+  latestSecondary: number | null
+  latestAt: string | null
+  count7d: number
+  average7d: number | null
+  inRange7d: number | null
+}
 
 interface TrackedMetric {
   type: string
   dailyPrompts: number
   targetMin: number | null
   targetMax: number | null
+  recorded?: RecordedMetric
 }
 
 interface Threshold {
@@ -78,6 +89,71 @@ function describeThreshold(t: Threshold): string {
 
 function metricListLabel(types: string[]): string {
   return types.map((t) => METRIC_LABELS[t] ?? t).join(', ')
+}
+
+function latestVsTarget(m: TrackedMetric): 'in' | 'low' | 'high' | null {
+  const value = m.recorded?.latestValue
+  if (value === null || value === undefined) return null
+  if (m.targetMin === null && m.targetMax === null) return null
+  if (m.targetMin !== null && value < m.targetMin) return 'low'
+  if (m.targetMax !== null && value > m.targetMax) return 'high'
+  return 'in'
+}
+
+function LatestReading({ metric }: { metric: TrackedMetric }) {
+  const rec = metric.recorded
+  if (!rec || rec.latestValue === null) {
+    return <span className="hint">No readings</span>
+  }
+  const vs = latestVsTarget(metric)
+  return (
+    <>
+      {formatMetric(metric.type, rec.latestValue, rec.latestSecondary)}
+      {rec.latestAt && <span className="hint"> · {formatDate(rec.latestAt)}</span>}
+      {vs === 'in' && (
+        <>
+          {' '}
+          <span className="badge badge-ok">In target</span>
+        </>
+      )}
+      {vs === 'low' && (
+        <>
+          {' '}
+          <span className="badge badge-warn">Below target</span>
+        </>
+      )}
+      {vs === 'high' && (
+        <>
+          {' '}
+          <span className="badge badge-warn">Above target</span>
+        </>
+      )}
+    </>
+  )
+}
+
+function WeekReading({ metric }: { metric: TrackedMetric }) {
+  const rec = metric.recorded
+  if (!rec || rec.count7d === 0) {
+    return <span className="hint">None this week</span>
+  }
+  const expected = metric.dailyPrompts > 0 ? 7 * metric.dailyPrompts : null
+  const coverage =
+    expected !== null ? `${rec.count7d} of ${expected} expected` : `${rec.count7d} reading${rec.count7d === 1 ? '' : 's'}`
+  return (
+    <>
+      {coverage}
+      {rec.average7d !== null && <span className="hint"> · avg {rec.average7d}</span>}
+      {rec.inRange7d !== null && (metric.targetMin !== null || metric.targetMax !== null) && (
+        <>
+          {' '}
+          <span className={`badge ${rec.inRange7d >= 0.7 ? 'badge-ok' : 'badge-warn'}`}>
+            {Math.round(rec.inRange7d * 100)}% in target
+          </span>
+        </>
+      )}
+    </>
+  )
 }
 
 interface MedlinePlusReference {
@@ -323,24 +399,40 @@ function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }
         </p>
       ) : (
         <>
-          <h3>Tracked metrics</h3>
+          <h3>Tracked vs recorded</h3>
+          <p className="hint">
+            What this module asks for, next to readings you have actually logged. The same reading
+            can count for more than one condition.
+          </p>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Metric</th>
                   <th>Target</th>
+                  <th>Latest</th>
+                  <th>Last 7 days</th>
                   <th>Prompts / day</th>
                 </tr>
               </thead>
               <tbody>
                 {c.trackedMetrics.map((m) => (
                   <tr key={m.type}>
-                    <td>{METRIC_LABELS[m.type] ?? m.type}</td>
+                    <td>
+                      <a href={`/metrics?type=${encodeURIComponent(m.type)}`}>
+                        {METRIC_LABELS[m.type] ?? m.type}
+                      </a>
+                    </td>
                     <td>
                       {m.targetMin === null && m.targetMax === null
                         ? '—'
                         : `${m.targetMin ?? ''}${m.targetMin !== null && m.targetMax !== null ? '–' : ''}${m.targetMax ?? ''}`}
+                    </td>
+                    <td>
+                      <LatestReading metric={m} />
+                    </td>
+                    <td>
+                      <WeekReading metric={m} />
                     </td>
                     <td>{m.dailyPrompts === 0 ? 'When you log it' : m.dailyPrompts}</td>
                   </tr>

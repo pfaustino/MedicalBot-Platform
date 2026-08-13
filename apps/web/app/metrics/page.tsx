@@ -125,6 +125,8 @@ export default function MetricsPage() {
         setSymptoms(symptomRes.symptoms)
         setSelection((cur) => {
           if (cur) return cur
+          const fromUrl = new URLSearchParams(window.location.search).get('type')
+          if (fromUrl) return fromUrl
           const topSymptom = symptomRes.symptoms[0]
           if (topSymptom) return selectionKey('symptom_severity', topSymptom.name)
           const topLab = labRes.analytes[0]

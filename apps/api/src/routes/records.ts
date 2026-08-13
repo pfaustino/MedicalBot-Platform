@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { and, asc, desc, eq, gte } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gte, sql } from 'drizzle-orm'
 import { adherenceRate, type AdherenceEvent } from '@medbot/shared'
 import {
   conditionDisplayLabel,
@@ -131,6 +131,8 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
       aligned.push(updated ?? { ...row, ...resolved })
     }
 
+    const recordedByType = await loadMetricRecordedByType(userId)
+
     return reply.send({
       conditions: aligned.map((row) => {
         const codeModule = resolveModuleForCondition({ ...row, moduleConfig: null })
@@ -149,7 +151,29 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
           hasModule: Boolean(mod),
           /** True when tracking comes from stored module_config (can be cleared). */
           isDynamicModule: Boolean(row.moduleConfig) && !codeModule,
-          trackedMetrics: mod?.metrics ?? [],
+          trackedMetrics: (mod?.metrics ?? []).map((m) => {
+            const recorded = recordedByType.get(m.type)
+            const values7d = recorded?.values7d ?? []
+            const inRange = values7d.filter(
+              (v) =>
+                (m.targetMin === null || v >= m.targetMin) &&
+                (m.targetMax === null || v <= m.targetMax),
+            ).length
+            return {
+              ...m,
+              recorded: {
+                count: recorded?.count ?? 0,
+                latestValue: recorded?.latestValue ?? null,
+                latestSecondary: recorded?.latestSecondary ?? null,
+                latestAt: recorded?.latestAt ?? null,
+                count7d: values7d.length,
+                average7d: values7d.length
+                  ? Number((values7d.reduce((a, b) => a + b, 0) / values7d.length).toFixed(1))
+                  : null,
+                inRange7d: values7d.length ? Number((inRange / values7d.length).toFixed(3)) : null,
+              },
+            }
+          }),
           thresholds: mod?.redFlags ?? [],
           trends: mod?.trends ?? [],
         }
@@ -288,4 +312,88 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
       })),
     })
   })
+}
+
+interface MetricRecorded {
+  count: number
+  latestValue: number | null
+  latestSecondary: number | null
+  latestAt: Date | null
+  values7d: number[]
+}
+
+function rowsOf<T>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[]
+  if (result && typeof result === 'object' && 'rows' in result) {
+    return (result as { rows: T[] }).rows
+  }
+  return []
+}
+
+/** Latest reading, all-time count, and last-7-day values, keyed by metric type. */
+async function loadMetricRecordedByType(userId: string): Promise<Map<string, MetricRecorded>> {
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+
+  const [counts, weekRows, latestResult] = await Promise.all([
+    db
+      .select({ type: schema.metrics.type, n: count() })
+      .from(schema.metrics)
+      .where(eq(schema.metrics.userId, userId))
+      .groupBy(schema.metrics.type),
+    db
+      .select({ type: schema.metrics.type, value: schema.metrics.value })
+      .from(schema.metrics)
+      .where(and(eq(schema.metrics.userId, userId), gte(schema.metrics.recordedAt, weekAgo))),
+    db.execute(sql`
+      SELECT DISTINCT ON (type)
+        type,
+        value,
+        value_secondary,
+        recorded_at
+      FROM metrics
+      WHERE user_id = ${userId}
+      ORDER BY type, recorded_at DESC
+    `),
+  ])
+
+  const map = new Map<string, MetricRecorded>()
+  for (const row of counts) {
+    map.set(row.type, {
+      count: Number(row.n),
+      latestValue: null,
+      latestSecondary: null,
+      latestAt: null,
+      values7d: [],
+    })
+  }
+
+  for (const row of rowsOf<{
+    type: string
+    value: string | number
+    value_secondary: string | number | null
+    recorded_at: Date | string
+  }>(latestResult)) {
+    const existing = map.get(row.type) ?? {
+      count: 0,
+      latestValue: null,
+      latestSecondary: null,
+      latestAt: null,
+      values7d: [],
+    }
+    existing.latestValue = Number(row.value)
+    existing.latestSecondary =
+      row.value_secondary === null || row.value_secondary === undefined
+        ? null
+        : Number(row.value_secondary)
+    existing.latestAt = row.recorded_at instanceof Date ? row.recorded_at : new Date(row.recorded_at)
+    map.set(row.type, existing)
+  }
+
+  for (const row of weekRows) {
+    const existing = map.get(row.type)
+    if (!existing) continue
+    existing.values7d.push(Number(row.value))
+  }
+
+  return map
 }
