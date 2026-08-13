@@ -18,6 +18,7 @@ const LINKS = [
   { href: '/calendar', label: 'Calendar', tour: 'nav-calendar' },
   { href: '/todos', label: 'To Dos', tour: 'nav-todos' },
   { href: '/records', label: 'Records', tour: 'nav-records' },
+  { href: '/visit-prep', label: 'Visit prep', tour: 'nav-visit-prep' },
   { href: '/import', label: 'Import', tour: 'nav-import' },
 ]
 

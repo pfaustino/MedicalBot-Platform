@@ -143,6 +143,11 @@ export default function DashboardPage() {
                 <span className="action-title">Manage medications</span>
                 <span className="action-sub">Doses, schedules, and refills</span>
               </Link>
+              <Link href="/visit-prep" className="action-card">
+                <span className="action-icon">📋</span>
+                <span className="action-title">90-day visit prep</span>
+                <span className="action-sub">Print a packet for your next appointment</span>
+              </Link>
               <Link href="/calendar" className="action-card">
                 <span className="action-icon">📅</span>
                 <span className="action-title">Calendar</span>

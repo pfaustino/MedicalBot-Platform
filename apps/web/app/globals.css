@@ -2250,3 +2250,30 @@ body:has(.assistant-fab) .toast-stack {
   display: flex;
   gap: 0.5rem;
 }
+
+/* ---------- print / visit packet ---------- */
+
+@media print {
+  .app-nav,
+  .page-actions,
+  .nav-toggle,
+  .btn-primary,
+  .btn-secondary {
+    display: none !important;
+  }
+
+  body {
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  .card {
+    break-inside: avoid;
+    box-shadow: none;
+    border: 1px solid #ccc;
+  }
+
+  a[href]::after {
+    content: none !important;
+  }
+}

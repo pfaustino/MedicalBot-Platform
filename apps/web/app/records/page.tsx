@@ -331,7 +331,8 @@ export default function RecordsPage() {
 
         <p className="muted">
           A read-only snapshot of your profile, active conditions, current medications, recent
-          labs, and care team — handy to bring to a doctor&apos;s visit.
+          labs, and care team. For a 90-day trend packet to bring to a visit, use{' '}
+          <a href="/visit-prep">Visit prep</a>.
         </p>
 
         <HealthSummary />

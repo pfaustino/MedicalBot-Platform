@@ -19,6 +19,8 @@ The platform is delivered in six phases. Each phase produces a shippable increme
 See [phases/README.md](phases/README.md) for a one-page overview of dependencies and
 exit criteria across all phases.
 
+Product sequence (visit prep first): [ROADMAP.md](ROADMAP.md).
+
 ## Legal and messaging
 
 - [legal/TERMS-OF-USE.md](../legal/TERMS-OF-USE.md) — user-facing Terms of Use
