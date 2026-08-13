@@ -32,11 +32,15 @@ export async function searchUsdaFoods(query: string, limit = 8): Promise<FoodSea
 
   const url = new URL(`${FDC_BASE}/foods/search`)
   url.searchParams.set('api_key', config.USDA_FDC_API_KEY)
-  url.searchParams.set('query', q)
-  url.searchParams.set('pageSize', String(Math.min(Math.max(limit, 1), 25)))
-  url.searchParams.set('dataType', 'Foundation,SR Legacy,Survey (FNDDS),Branded')
-
-  const json = await fdcFetch(url)
+  const json = await fdcFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      query: q,
+      pageSize: Math.min(Math.max(limit, 1), 25),
+      dataType: ['Foundation', 'SR Legacy', 'Survey (FNDDS)', 'Branded'],
+    }),
+  })
   const foods = Array.isArray((json as { foods?: unknown }).foods)
     ? ((json as { foods: unknown[] }).foods)
     : []
@@ -71,15 +75,17 @@ export async function getUsdaFood(fdcId: number): Promise<FoodNutrition | null> 
   return food
 }
 
-async function fdcFetch(url: URL): Promise<unknown> {
+async function fdcFetch(url: URL, init?: RequestInit): Promise<unknown> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
   try {
     const response = await fetch(url, {
+      ...init,
       signal: controller.signal,
       headers: {
         Accept: 'application/json',
         'User-Agent': `MedicalBot-Platform/1.0 (${config.APP_URL})`,
+        ...init?.headers,
       },
     })
     if (!response.ok) {
