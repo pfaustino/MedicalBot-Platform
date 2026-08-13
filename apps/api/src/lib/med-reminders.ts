@@ -1,6 +1,8 @@
 import { eq } from 'drizzle-orm'
 import {
   medicationRRule,
+  padClockTime,
+  scheduleForReminders,
   scheduleSchema,
   upcomingDoseSlots,
   ymdInZone,
@@ -39,7 +41,12 @@ async function userTimezone(userId: string): Promise<string> {
 }
 
 function parseSchedule(raw: unknown): Schedule | null {
-  const parsed = scheduleSchema.safeParse(raw)
+  if (!raw || typeof raw !== 'object') return null
+  const rec = { ...(raw as Record<string, unknown>) }
+  if (Array.isArray(rec.times)) {
+    rec.times = rec.times.map((t) => (typeof t === 'string' ? (padClockTime(t) ?? t) : t))
+  }
+  const parsed = scheduleSchema.safeParse(rec)
   return parsed.success ? parsed.data : null
 }
 
@@ -87,9 +94,10 @@ function doseDescription(schedule: Schedule): string {
 export async function syncMedicationReminders(userId: string, med: MedReminderRow): Promise<Record<string, string>> {
   const connection = await getCalendarConnection(userId)
   const existing = { ...(med.googleEventIds ?? {}) }
-  const schedule = parseSchedule(med.schedule)
-  const rrule = schedule && med.isActive ? medicationRRule(schedule, endedYmd(med.endedAt)) : null
-  const desiredTimes = rrule && schedule ? schedule.times : []
+  const parsed = parseSchedule(med.schedule)
+  const usable = parsed ? scheduleForReminders(parsed) : null
+  const rrule = usable && med.isActive ? medicationRRule(usable, endedYmd(med.endedAt)) : null
+  const desiredTimes = rrule && usable ? usable.times : []
 
   if (!connection.connected) {
     return existing
@@ -108,12 +116,12 @@ export async function syncMedicationReminders(userId: string, med: MedReminderRo
   }
 
   for (const time of desiredTimes) {
-    const start = nextOccurrence(time, timeZone, schedule?.daysOfWeek ?? [])
+    const start = nextOccurrence(time, timeZone, usable?.daysOfWeek ?? [])
     const payload = {
       title: doseTitle(med),
       startsAt: start,
       endsAt: new Date(+start + DOSE_MINUTES * 60 * 1000),
-      description: doseDescription(schedule!),
+      description: doseDescription(usable!),
       timeZone,
       recurrence: [rrule!],
       reminderMinutes: [0],

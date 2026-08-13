@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { PHQ9, enrichLabResult, medicationRRule, parseReferenceRange, scoreQuestionnaire, upcomingDoseSlots, zonedDate } from '@medbot/shared'
+import { PHQ9, enrichLabResult, inferTimesFromText, medicationRRule, parseReferenceRange, scoreQuestionnaire, upcomingDoseSlots, zonedDate } from '@medbot/shared'
 import { evaluateTrend, mergedMetrics, mergedRedFlags, modulesFor } from '@medbot/conditions'
 
 describe('PHQ-9 scoring', () => {
@@ -212,7 +212,32 @@ describe('dose schedule expansion', () => {
     assert.equal(slots.length, 0)
   })
 
-  it('skips as-needed schedules', () => {
+  it('skips as-needed schedules with no frequency text', () => {
     assert.equal(medicationRRule({ ...twiceDaily, kind: 'as_needed', times: [] }), null)
+  })
+
+  it('infers twice-daily times from imported frequency text', () => {
+    assert.deepEqual(inferTimesFromText('Twice daily with meals'), ['08:00', '20:00'])
+    const slots = upcomingDoseSlots(
+      {
+        ...twiceDaily,
+        kind: 'as_needed',
+        times: [],
+        instructions: 'BID',
+      },
+      {
+        timeZone: 'America/New_York',
+        from: zonedDate('America/New_York', 2026, 8, 13, 0, 0),
+        to: zonedDate('America/New_York', 2026, 8, 13, 23, 59),
+      },
+    )
+    assert.deepEqual(
+      slots.map((s) => s.time),
+      ['08:00', '20:00'],
+    )
+  })
+
+  it('does not infer times for true PRN text', () => {
+    assert.deepEqual(inferTimesFromText('as needed for pain'), [])
   })
 })

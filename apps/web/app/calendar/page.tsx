@@ -963,6 +963,20 @@ function CalendarBoard({
         <DayView cursor={cursor} byDay={byDay} onSelectItem={setSelected} onCreate={onCreate} />
       )}
 
+      {filtered.length === 0 && (
+        <p className="hint" style={{ marginTop: '1rem' }}>
+          {filter === 'reminder' ? (
+            <>
+              No dose times in this range. Imported meds often have no clock time — add times like
+              08:00, 20:00 on <Link href="/medications">Medications</Link>, or put a frequency such as
+              “twice daily” in the instructions, then use Sync dose reminders.
+            </>
+          ) : (
+            'Nothing in this view for the dates on screen.'
+          )}
+        </p>
+      )}
+
       <Modal open={Boolean(selected)} title={selected?.title ?? 'Event'} onClose={() => setSelected(null)}>
         {selected && (
           <EventEditor item={selected} onChanged={onChanged} onClose={() => setSelected(null)} />

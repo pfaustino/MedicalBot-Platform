@@ -72,18 +72,67 @@ export function adherenceRate(events: readonly AdherenceEvent[]): number {
 
 const RRULE_BYDAY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'] as const
 
+/** Pad `8:00` → `08:00`. Returns null when the string is not an HH:MM time. */
+export function padClockTime(raw: string): string | null {
+  const m = raw.trim().match(/^(\d{1,2}):([0-5]\d)$/)
+  if (!m) return null
+  const hh = Number(m[1])
+  if (hh > 23) return null
+  return `${String(hh).padStart(2, '0')}:${m[2]}`
+}
+
+/**
+ * Clock times implied by pharmacy-style frequency text. Used for imported meds
+ * that were stored as as-needed with the cadence in `instructions`.
+ */
+export function inferTimesFromText(text: string | null | undefined): string[] {
+  if (!text) return []
+  const t = text.toLowerCase()
+  if (/\b(as needed|as directed|prn|p\.?\s*r\.?\s*n\.?)\b/.test(t) && !/\b(once|twice|daily|bid|tid|qid)\b/.test(t)) {
+    return []
+  }
+  const clock = [...text.matchAll(/\b(\d{1,2}):([0-5]\d)\b/g)]
+    .map((m) => padClockTime(m[0]))
+    .filter((x): x is string => Boolean(x))
+  if (clock.length > 0) return [...new Set(clock)]
+
+  if (/\b(four times|qid|q\.i\.d|q6h|every 6)\b/.test(t)) return ['08:00', '12:00', '18:00', '22:00']
+  if (/\b(three times|tid|t\.i\.d|q8h|every 8)\b/.test(t)) return ['08:00', '14:00', '20:00']
+  if (/\b(twice|bid|b\.i\.d|q12h|every 12|2x|two times)\b/.test(t)) return ['08:00', '20:00']
+  if (/\b(bedtime|qhs|q\.h\.s|at night|nightly)\b/.test(t)) return ['21:00']
+  if (/\b(once daily|once a day|daily|every day|qday|q\.?d\.?\b|every morning|qam|each morning)\b/.test(t)) {
+    return ['08:00']
+  }
+  return []
+}
+
+/**
+ * Schedule the calendar can actually expand. Pads stored times and, when a med
+ * was imported as as-needed, infers clock times from frequency instructions.
+ */
+export function scheduleForReminders(schedule: Schedule): Schedule | null {
+  const times = schedule.times.map((t) => padClockTime(t)).filter((t): t is string => Boolean(t))
+  if (schedule.kind === 'fixed_times' && times.length > 0) {
+    return { ...schedule, times }
+  }
+  const inferred = inferTimesFromText(schedule.instructions)
+  if (inferred.length === 0) return null
+  return { ...schedule, kind: 'fixed_times', times: inferred }
+}
+
 /**
  * Recurrence for a fixed-time medication schedule. Null when the schedule
  * cannot become a calendar series (as-needed, interval, cyclic, or no times).
  */
 export function medicationRRule(schedule: Schedule, untilYmd?: string | null): string | null {
-  if (schedule.kind !== 'fixed_times' || schedule.times.length === 0) return null
+  const usable = scheduleForReminders(schedule)
+  if (!usable) return null
   const until =
     untilYmd && /^\d{4}-\d{2}-\d{2}$/.test(untilYmd)
       ? `;UNTIL=${untilYmd.replace(/-/g, '')}`
       : ''
-  if (schedule.daysOfWeek.length === 0) return `RRULE:FREQ=DAILY${until}`
-  const days = [...schedule.daysOfWeek]
+  if (usable.daysOfWeek.length === 0) return `RRULE:FREQ=DAILY${until}`
+  const days = [...usable.daysOfWeek]
     .sort((a, b) => a - b)
     .map((d) => RRULE_BYDAY[d])
     .join(',')
@@ -103,8 +152,9 @@ export function upcomingDoseSlots(
   schedule: Schedule,
   opts: { timeZone: string; from: Date; to: Date },
 ): DoseSlot[] {
-  if (schedule.kind !== 'fixed_times' || schedule.times.length === 0) return []
-  const days = schedule.daysOfWeek.length > 0 ? new Set(schedule.daysOfWeek) : null
+  const usable = scheduleForReminders(schedule)
+  if (!usable) return []
+  const days = usable.daysOfWeek.length > 0 ? new Set(usable.daysOfWeek) : null
   const start = wallClock(opts.from, opts.timeZone)
   const end = wallClock(opts.to, opts.timeZone)
   const out: DoseSlot[] = []
@@ -116,7 +166,7 @@ export function upcomingDoseSlots(
     const noon = zonedDate(opts.timeZone, cursor.year, cursor.month, cursor.day, 12, 0)
     const weekday = wallClock(noon, opts.timeZone).weekday
     if (!days || days.has(weekday)) {
-      for (const time of schedule.times) {
+      for (const time of usable.times) {
         const hh = Number(time.slice(0, 2))
         const mm = Number(time.slice(3, 5))
         const at = zonedDate(opts.timeZone, cursor.year, cursor.month, cursor.day, hh, mm)

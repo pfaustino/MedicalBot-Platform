@@ -12,6 +12,7 @@ import {
   LAB_FLAGS,
   normalizeMetricInput,
   resolveConditionCreate,
+  inferTimesFromText,
   type ExtractedDiagnosis,
   type ExtractedTodo,
 } from '@medbot/shared'
@@ -311,14 +312,15 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
 
       for (const med of medications) {
         const form = med.form && MED_FORMS.has(med.form.toLowerCase()) ? med.form.toLowerCase() : 'other'
+        const inferred = inferTimesFromText(med.frequency ?? null)
         await tx.insert(schema.medications).values({
           userId,
           name: med.name,
           dose: med.dose ?? 'as directed',
           form,
           schedule: {
-            kind: 'as_needed',
-            times: [],
+            kind: inferred.length ? 'fixed_times' : 'as_needed',
+            times: inferred,
             intervalHours: null,
             daysOfWeek: [],
             cycleOnDays: null,

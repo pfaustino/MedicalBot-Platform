@@ -11,6 +11,7 @@ import { formatDate, MED_FORM_LABELS } from '@/lib/format'
 interface Schedule {
   kind: string
   times: string[]
+  intervalHours?: number | null
   withFood: boolean
   instructions: string | null
 }
@@ -37,8 +38,6 @@ interface Medication {
   missed30d: number
   events30d: AdherenceEventBrief[]
 }
-
-const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 
 function localDateInput(d = new Date()): string {
   const y = d.getFullYear()
@@ -70,6 +69,53 @@ function scheduleTag(s: Schedule): string {
   if (s.kind === 'interval_hours') return 'Interval'
   if (s.kind === 'cyclic') return 'Cyclic'
   return 'Daily'
+}
+
+function parseTimesRaw(raw: string): string[] | null {
+  const parts = raw
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+  if (parts.length === 0) return []
+  const out: string[] = []
+  for (const part of parts) {
+    const m = part.match(/^(\d{1,2}):([0-5]\d)$/)
+    if (!m) return null
+    const hh = Number(m[1])
+    if (hh > 23) return null
+    out.push(`${String(hh).padStart(2, '0')}:${m[2]}`)
+  }
+  return out
+}
+
+function buildSchedule(input: {
+  kind: string
+  timesRaw: string
+  intervalHours: string
+  withFood: boolean
+  instructions: string
+}): { schedule: Record<string, unknown> } | { error?: string; timesError?: string } {
+  const schedule: Record<string, unknown> = { kind: input.kind }
+  if (input.kind === 'fixed_times') {
+    const times = parseTimesRaw(input.timesRaw)
+    if (times === null) {
+      return { timesError: 'Use 24-hour HH:MM times separated by commas, e.g. "08:00, 20:00".' }
+    }
+    if (times.length === 0) {
+      return { timesError: 'Enter at least one time, e.g. "08:00, 20:00".' }
+    }
+    schedule.times = times
+  }
+  if (input.kind === 'interval_hours') {
+    const hours = Number(input.intervalHours)
+    if (!input.intervalHours || Number.isNaN(hours) || hours <= 0) {
+      return { error: 'Enter a positive number of hours for the interval.' }
+    }
+    schedule.intervalHours = hours
+  }
+  schedule.withFood = input.withFood
+  schedule.instructions = input.instructions.trim() || null
+  return { schedule }
 }
 
 const DAY_RANK: Record<string, number> = {
@@ -149,6 +195,7 @@ function MedCard({
 }) {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
+  const [editingTimes, setEditingTimes] = useState(false)
   const pct = Math.round(m.adherence30d * 100)
   const tone = pct >= 90 ? 'ok' : pct >= 75 ? 'warn' : 'low'
 
@@ -270,13 +317,124 @@ function MedCard({
             </button>
           </div>
           <div className="btn-row">
+            <button type="button" className="btn-ghost btn-sm" disabled={busy} onClick={() => setEditingTimes(true)}>
+              Edit times
+            </button>
             <button type="button" className="btn-ghost btn-sm" disabled={busy} onClick={() => void markInactive()}>
               Mark inactive
             </button>
           </div>
         </>
       )}
+
+      <Modal open={editingTimes} title={`Times for ${m.name}`} onClose={() => setEditingTimes(false)}>
+        <ScheduleEditForm
+          med={m}
+          onDone={() => {
+            setEditingTimes(false)
+            toast.show(`Updated times for ${m.name}.`, 'ok')
+            onChanged()
+          }}
+        />
+      </Modal>
     </div>
+  )
+}
+
+function ScheduleEditForm({ med, onDone }: { med: Medication; onDone: () => void }) {
+  const s = med.schedule
+  const [kind, setKind] = useState(
+    s.kind === 'as_needed' && !(s.times && s.times.length) ? 'fixed_times' : s.kind,
+  )
+  const [timesRaw, setTimesRaw] = useState(s.times?.length ? s.times.join(', ') : '08:00, 20:00')
+  const [intervalHours, setIntervalHours] = useState(
+    s.intervalHours != null ? String(s.intervalHours) : '',
+  )
+  const [withFood, setWithFood] = useState(Boolean(s.withFood))
+  const [instructions, setInstructions] = useState(s.instructions ?? '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [timesError, setTimesError] = useState<string | null>(null)
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    setError(null)
+    setTimesError(null)
+    const built = buildSchedule({ kind, timesRaw, intervalHours, withFood, instructions })
+    if (!('schedule' in built)) {
+      if (built.timesError) setTimesError(built.timesError)
+      if (built.error) setError(built.error)
+      return
+    }
+    setBusy(true)
+    try {
+      await apiPatch(`/api/medications/${med.id}`, { schedule: built.schedule })
+      onDone()
+    } catch {
+      setError('Could not save those times. Please try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form onSubmit={submit}>
+      <p className="hint">
+        Fixed times (24-hour, e.g. 08:00, 20:00) are what Calendar uses for phone alarms.
+      </p>
+      <label className="field">
+        <span>Schedule</span>
+        <select value={kind} onChange={(e) => setKind(e.target.value)}>
+          <option value="fixed_times">Fixed times</option>
+          <option value="interval_hours">Every N hours</option>
+          <option value="as_needed">As needed</option>
+          <option value="cyclic">Cyclic</option>
+        </select>
+      </label>
+      {kind === 'fixed_times' && (
+        <label className="field">
+          <span>Times</span>
+          <input
+            type="text"
+            value={timesRaw}
+            onChange={(e) => setTimesRaw(e.target.value)}
+            placeholder="08:00, 20:00"
+            autoFocus
+          />
+          <span className="help-text">24-hour HH:MM, comma-separated.</span>
+        </label>
+      )}
+      {kind === 'interval_hours' && (
+        <label className="field">
+          <span>Every (hours)</span>
+          <input
+            type="number"
+            min="1"
+            step="1"
+            value={intervalHours}
+            onChange={(e) => setIntervalHours(e.target.value)}
+            placeholder="8"
+          />
+        </label>
+      )}
+      <label className="field">
+        <span>
+          <input type="checkbox" checked={withFood} onChange={(e) => setWithFood(e.target.checked)} /> Take with
+          food
+        </span>
+      </label>
+      <label className="field">
+        <span>Instructions (optional)</span>
+        <input type="text" value={instructions} onChange={(e) => setInstructions(e.target.value)} />
+      </label>
+      {timesError && <p className="field-error">{timesError}</p>}
+      {error && <p className="field-error">{error}</p>}
+      <div className="form-actions">
+        <button type="submit" className="btn-primary" disabled={busy}>
+          {busy ? 'Saving…' : 'Save times'}
+        </button>
+      </div>
+    </form>
   )
 }
 
@@ -417,32 +575,13 @@ function MedicationForm({ onDone }: { onDone: () => void }) {
       return
     }
 
-    const schedule: Record<string, unknown> = { kind }
-    if (kind === 'fixed_times') {
-      const times = timesRaw
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean)
-      if (times.length === 0) {
-        setTimesError('Enter at least one time, e.g. "08:00, 20:00".')
-        return
-      }
-      if (!times.every((t) => TIME_RE.test(t))) {
-        setTimesError('Use 24-hour HH:MM times separated by commas, e.g. "08:00, 20:00".')
-        return
-      }
-      schedule.times = times
+    const built = buildSchedule({ kind, timesRaw, intervalHours, withFood, instructions })
+    if (!('schedule' in built)) {
+      if (built.timesError) setTimesError(built.timesError)
+      if (built.error) setError(built.error)
+      return
     }
-    if (kind === 'interval_hours') {
-      const hours = Number(intervalHours)
-      if (!intervalHours || Number.isNaN(hours) || hours <= 0) {
-        setError('Enter a positive number of hours for the interval.')
-        return
-      }
-      schedule.intervalHours = hours
-    }
-    schedule.withFood = withFood
-    if (instructions.trim()) schedule.instructions = instructions.trim()
+    const schedule = built.schedule
 
     const body: Record<string, unknown> = {
       name: name.trim(),
