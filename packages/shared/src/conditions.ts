@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { METRIC_TYPES } from './metrics.js'
 import { CONDITION_KEYS, CONDITION_LABELS, type ConditionKey } from './profile.js'
 import { ICD_CONDITION_CATALOG } from './reference/icd-conditions.js'
+import { CONDITION_ICD10 } from './reference/condition-icd10.js'
 
 /** Persistable subset of a ConditionModule — stored on conditions.module_config. */
 export const storedTrackedMetricSchema = z.object({
@@ -279,14 +280,17 @@ export function resolveConditionCreate(input: ConditionCreateInput) {
     moduleKey: moduleKey ?? input.moduleKey,
     icdCode: input.icdCode,
   })
-  const displayName =
-    moduleKey && CONDITION_LABELS[moduleKey]
-      ? CONDITION_LABELS[moduleKey]
-      : input.name.trim()
+  const pickedIcd = input.icdCode?.trim() ? normalizeIcdCode(input.icdCode) : null
+  const canon = moduleKey ? CONDITION_ICD10[moduleKey] : undefined
+  const icdCode = pickedIcd ?? canon?.code ?? null
+  const displayName = pickedIcd
+    ? input.name.trim()
+    : (canon?.name ??
+      (moduleKey && CONDITION_LABELS[moduleKey] ? CONDITION_LABELS[moduleKey] : input.name.trim()))
   return {
     key,
     displayName,
-    icdCode: input.icdCode?.trim() ? normalizeIcdCode(input.icdCode) : null,
+    icdCode,
     diagnosedAt: input.diagnosedAt,
     status: input.status,
     managingProviderId: input.managingProviderId,

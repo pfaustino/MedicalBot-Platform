@@ -17,6 +17,7 @@ import {
 import { getOpenRouterSettings, getOpenRouterSettingsView } from '../lib/openrouter-settings.js'
 import { searchNlmIcd10 } from '../lib/nlm-icd10.js'
 import { lookupMedlinePlus } from '../lib/medlineplus.js'
+import { resolveIcdForCondition } from '../lib/align-condition-icd.js'
 import { requireUser } from './auth.js'
 
 /**
@@ -111,11 +112,30 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
       .where(eq(schema.conditions.userId, userId))
       .orderBy(asc(schema.conditions.key))
 
+    const aligned = []
+    for (const row of rows) {
+      if (row.icdCode?.trim() && row.displayName?.trim()) {
+        aligned.push(row)
+        continue
+      }
+      const resolved = await resolveIcdForCondition(row)
+      if (!resolved) {
+        aligned.push(row)
+        continue
+      }
+      const [updated] = await db
+        .update(schema.conditions)
+        .set({ icdCode: resolved.icdCode, displayName: resolved.displayName })
+        .where(eq(schema.conditions.id, row.id))
+        .returning()
+      aligned.push(updated ?? { ...row, ...resolved })
+    }
+
     return reply.send({
-      conditions: rows.map((row) => {
+      conditions: aligned.map((row) => {
         const codeModule = resolveModuleForCondition({ ...row, moduleConfig: null })
         const mod = resolveModuleForCondition(row)
-        const label = mod?.label ?? conditionDisplayLabel(row)
+        const label = conditionDisplayLabel(row)
         return {
           id: row.id,
           key: row.key,

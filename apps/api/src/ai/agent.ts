@@ -2,6 +2,7 @@ import { and, desc, eq, gte } from 'drizzle-orm'
 import {
   ADHERENCE_STATUSES,
   CANONICAL_UNITS,
+  CONDITION_ICD10,
   CONDITION_KEYS,
   CONDITION_LABELS,
   METRIC_TYPES,
@@ -243,7 +244,12 @@ async function executeTool(userId: string, name: string, args: Record<string, un
       if (!CONDITION_KEYS.includes(key as never)) return { result: { ok: false, error: `Unknown condition "${key}"` } }
       await db
         .insert(schema.conditions)
-        .values({ userId, key })
+        .values({
+          userId,
+          key,
+          icdCode: CONDITION_ICD10[key as ConditionKey].code,
+          displayName: CONDITION_ICD10[key as ConditionKey].name,
+        })
         .onConflictDoNothing({ target: [schema.conditions.userId, schema.conditions.key] })
       return { result: { ok: true, added: CONDITION_LABELS[key as ConditionKey] }, action: `Added condition: ${CONDITION_LABELS[key as ConditionKey]}` }
     }

@@ -1,4 +1,5 @@
 export * from './condition-glossary.js'
+export * from './condition-icd10.js'
 export * from './medication-glossary.js'
 export * from './lab-glossary.js'
 export * from './lab-panels.js'

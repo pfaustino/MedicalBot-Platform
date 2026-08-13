@@ -69,3 +69,30 @@ function parseNlmResponse(json: unknown): NlmIcdEntry[] {
   }
   return entries
 }
+
+const STOP_WORDS = new Set(['the', 'and', 'with', 'for', 'of'])
+
+/** Prefer unspecified / without-complications codes over the first subtype hit. */
+export function pickBestIcdMatch(query: string, entries: NlmIcdEntry[]): NlmIcdEntry | null {
+  if (entries.length === 0) return null
+  const q = query.trim().toLowerCase().replace(/[.,]/g, ' ').replace(/\s+/g, ' ')
+  const words = q.split(' ').filter((w) => w.length > 2 && !STOP_WORDS.has(w))
+
+  let best: { entry: NlmIcdEntry; score: number } | null = null
+  for (const entry of entries) {
+    const name = entry.name.toLowerCase()
+    let score = 0
+    if (name === q) score += 100
+    if (entry.code.toLowerCase() === q.replace(/\s/g, '')) score += 100
+    if (name.startsWith(q)) score += 35
+    if (name.includes(q)) score += 20
+    if (words.length > 0 && words.every((w) => name.includes(w))) score += 15
+    if (/\bunspecified\b/.test(name)) score += 12
+    if (/without complications/.test(name)) score += 12
+    if (/\buncomplicated\b/.test(name)) score += 8
+    if (/\bwith\b/.test(name) && !/without/.test(name)) score -= 10
+    if (!best || score > best.score) best = { entry, score }
+  }
+  if (!best || best.score < 25) return null
+  return best.entry
+}

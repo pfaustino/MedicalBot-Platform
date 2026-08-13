@@ -301,6 +301,7 @@ function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }
           <h2>{c.label}</h2>
           <p className="hint">
             {titleCase(c.status)}
+            {c.icdCode && ` · ${c.icdCode}`}
             {c.diagnosedAt && ` · diagnosed ${formatDate(c.diagnosedAt)}`}
           </p>
         </div>

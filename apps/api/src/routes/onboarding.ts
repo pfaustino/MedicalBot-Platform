@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { and, eq, inArray } from 'drizzle-orm'
 import {
+  CONDITION_ICD10,
   CONDITION_KEYS,
   CONDITION_LABELS,
   intakeSchema,
@@ -106,7 +107,14 @@ export async function onboardingRoutes(app: FastifyInstance): Promise<void> {
 
       const toAdd = conditions.filter((k) => !existingKeys.has(k))
       if (toAdd.length > 0) {
-        await tx.insert(schema.conditions).values(toAdd.map((key) => ({ userId, key })))
+        await tx.insert(schema.conditions).values(
+          toAdd.map((key) => ({
+            userId,
+            key,
+            icdCode: CONDITION_ICD10[key].code,
+            displayName: CONDITION_ICD10[key].name,
+          })),
+        )
       }
 
       const now = new Date()
