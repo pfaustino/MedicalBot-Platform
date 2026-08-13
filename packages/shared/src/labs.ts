@@ -112,6 +112,15 @@ export function labContextNames(wanted: string): string[] {
   return [...new Set([ref.name, ...ref.aliases])]
 }
 
+/**
+ * Lab imports store A1C as type `lab_value` with a test name in context.
+ * Condition modules track it as first-class type `a1c`.
+ */
+export function labAliasForMetricType(type: string): string | null {
+  if (type === 'a1c') return 'A1C'
+  return null
+}
+
 export function inferLabFlag(
   value: string,
   range?: { low?: number | null; high?: number | null },

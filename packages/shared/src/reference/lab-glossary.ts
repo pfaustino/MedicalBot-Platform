@@ -39,7 +39,7 @@ export const LAB_GLOSSARY: LabTestReference[] = [
   {
     loinc: '4548-4',
     name: 'Hemoglobin A1C',
-    aliases: ['A1C', 'HbA1c', 'Glycated hemoglobin'],
+    aliases: ['A1C', 'HbA1c', 'Glycated hemoglobin', 'Haemoglobin A1C', 'Hemoglobin A1c'],
     whatItMeasures:
       'Average blood sugar over roughly the past 2–3 months by measuring how much glucose is attached to hemoglobin in red blood cells.',
     whyItIsOrdered:

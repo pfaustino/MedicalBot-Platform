@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { and, asc, count, desc, eq, gte, sql } from 'drizzle-orm'
-import { adherenceRate, canonicalLabName, type AdherenceEvent } from '@medbot/shared'
+import { adherenceRate, canonicalLabName, labAliasForMetricType, type AdherenceEvent } from '@medbot/shared'
 import {
   conditionDisplayLabel,
   mergeConditionSearchWithNlm,
@@ -419,5 +419,22 @@ async function loadMetricRecordedByType(userId: string): Promise<Map<string, Met
     bucket(row.type, row.context).values7d.push(Number(row.value))
   }
 
+  const labA1c = map.get(recordedKey('lab_value', labAliasForMetricType('a1c')))
+  if (labA1c) {
+    const dest = map.get('a1c') ?? emptyRecorded()
+    mergeRecorded(dest, labA1c)
+    map.set('a1c', dest)
+  }
+
   return map
+}
+
+function mergeRecorded(into: MetricRecorded, from: MetricRecorded): void {
+  into.count += from.count
+  into.values7d.push(...from.values7d)
+  if (from.latestAt && (!into.latestAt || from.latestAt > into.latestAt)) {
+    into.latestValue = from.latestValue
+    into.latestSecondary = from.latestSecondary
+    into.latestAt = from.latestAt
+  }
 }

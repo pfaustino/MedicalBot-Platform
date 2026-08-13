@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
-import { and, count, desc, eq, gte, max, sql } from 'drizzle-orm'
+import { and, count, desc, eq, gte, max, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { METRIC_TYPES, labContextMatches, labContextNames, normalizeMetricInput } from '@medbot/shared'
+import { METRIC_TYPES, labAliasForMetricType, labContextMatches, labContextNames, normalizeMetricInput } from '@medbot/shared'
 import { mergedRedFlags, resolveModulesForConditions } from '@medbot/conditions'
 import { db, schema } from '../db/index.js'
 import { requireUser } from './auth.js'
@@ -152,8 +152,28 @@ export async function metricRoutes(app: FastifyInstance): Promise<void> {
       const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
       filters.push(gte(schema.metrics.recordedAt, since))
     }
-    if (type) filters.push(eq(schema.metrics.type, type))
-    if (context) {
+    if (type === 'a1c') {
+      const names = labContextNames(labAliasForMetricType('a1c')!).map((n) => n.toLowerCase())
+      filters.push(
+        or(
+          eq(schema.metrics.type, 'a1c'),
+          and(
+            eq(schema.metrics.type, 'lab_value'),
+            sql`(
+              lower(coalesce(${schema.metrics.context}, '')) in (${sql.join(
+                names.map((n) => sql`${n}`),
+                sql`, `,
+              )})
+              or lower(coalesce(${schema.metrics.context}, '')) like ${'%a1c%'}
+              or lower(coalesce(${schema.metrics.context}, '')) like ${'%hba1c%'}
+            )`,
+          ),
+        )!,
+      )
+    } else if (type) {
+      filters.push(eq(schema.metrics.type, type))
+    }
+    if (type !== 'a1c' && context) {
       if (type === 'lab_value') {
         const names = labContextNames(context).map((n) => n.toLowerCase())
         filters.push(
