@@ -269,6 +269,14 @@ export const conditionCreateSchema = z.object({
 
 export type ConditionCreateInput = z.infer<typeof conditionCreateSchema>
 
+export const conditionRenameSchema = z.object({
+  name: z.string().min(1).max(200),
+  moduleKey: z.enum(CONDITION_KEYS).nullish(),
+  icdCode: z.string().max(20).nullish(),
+})
+
+export type ConditionRenameInput = z.infer<typeof conditionRenameSchema>
+
 export function resolveConditionCreate(input: ConditionCreateInput) {
   const moduleKey = inferModuleKey({
     name: input.name,

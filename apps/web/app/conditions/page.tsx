@@ -6,7 +6,7 @@ import { Modal } from '../components/Modal'
 import { useToast } from '../components/Toast'
 import { Loaded } from '../components/Loader'
 import { ConditionPicker, type ConditionSelection } from '../components/ConditionPicker'
-import { apiGet, apiPost, apiDelete, ApiError, apiErrorMessage } from '@/lib/api'
+import { apiGet, apiPost, apiPatch, apiDelete, ApiError, apiErrorMessage } from '@/lib/api'
 import { METRIC_LABELS, formatDate, titleCase } from '@/lib/format'
 import { getConditionReference, icdCodeFromConditionKey } from '@medbot/shared'
 import type { ConditionKey } from '@medbot/shared'
@@ -219,6 +219,7 @@ function MedlinePlusEducation({ code }: { code: string }) {
 function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }) {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
+  const [editing, setEditing] = useState(false)
   const [preview, setPreview] = useState<ModulePreviewResponse | null>(null)
   const [confirming, setConfirming] = useState(false)
 
@@ -381,6 +382,9 @@ function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }
       <ConditionEducation conditionKey={c.key} icdCode={c.icdCode} />
 
       <div className="btn-row">
+        <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={() => setEditing(true)}>
+          Edit
+        </button>
         {c.isDynamicModule && (
           <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={clearModule}>
             Clear module
@@ -390,6 +394,19 @@ function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }
           Remove
         </button>
       </div>
+
+      <Modal open={editing} title="Edit condition" onClose={() => setEditing(false)} wide>
+        {editing && (
+          <EditConditionForm
+            condition={c}
+            onCancel={() => setEditing(false)}
+            onSaved={() => {
+              setEditing(false)
+              onChanged()
+            }}
+          />
+        )}
+      </Modal>
 
       <Modal
         open={Boolean(preview)}
@@ -423,6 +440,72 @@ function ConditionCard({ c, onChanged }: { c: Condition; onChanged: () => void }
         )}
       </Modal>
     </div>
+  )
+}
+
+function EditConditionForm({
+  condition,
+  onCancel,
+  onSaved,
+}: {
+  condition: Condition
+  onCancel: () => void
+  onSaved: () => void
+}) {
+  const toast = useToast()
+  const [selection, setSelection] = useState<ConditionSelection>({
+    name: condition.label,
+    moduleKey: null,
+    icdCode: condition.icdCode,
+  })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    setError(null)
+    const name = selection.name.trim()
+    if (name.length < 2) {
+      setError('Search for a condition or type a name (at least 2 characters).')
+      return
+    }
+    setBusy(true)
+    try {
+      await apiPatch(`/api/conditions/${encodeURIComponent(condition.key)}`, {
+        name,
+        moduleKey: selection.moduleKey,
+        icdCode: selection.icdCode,
+      })
+      toast.show('Condition updated.')
+      onSaved()
+    } catch (err) {
+      const detail = err instanceof ApiError ? apiErrorMessage(err.body) : null
+      setError(detail ?? 'Could not update that condition.')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="stack">
+      <label className="field">
+        <span>Condition</span>
+        <ConditionPicker value={selection} onChange={setSelection} error={error} autoFocus />
+        <p className="help-text">
+          Search the NIH catalog and pick a diagnosis to set the ICD-10-CM code. You can also type a
+          name and we&apos;ll match a code when possible.
+        </p>
+        {selection.icdCode && <p className="help-text">ICD-10-CM {selection.icdCode}</p>}
+      </label>
+      {error && <p className="field-error">{error}</p>}
+      <div className="form-actions">
+        <button type="button" className="btn-secondary" disabled={busy} onClick={onCancel}>
+          Cancel
+        </button>
+        <button type="submit" className="btn-primary" disabled={busy}>
+          {busy ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </form>
   )
 }
 

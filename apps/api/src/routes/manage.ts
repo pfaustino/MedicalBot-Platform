@@ -6,10 +6,13 @@ import {
   careTeamMemberSchema,
   conditionCreateSchema,
   conditionDisplayLabel,
+  conditionRenameSchema,
   conditionSchema,
   medicationSchema,
   profileSchema,
   resolveConditionCreate,
+  buildConditionKey,
+  inferModuleKey,
   scheduleSchema,
   storedModuleConfigSchema,
   todoCreateSchema,
@@ -33,6 +36,7 @@ import {
   saveOpenRouterSettings,
 } from '../lib/openrouter-settings.js'
 import { requireUser } from './auth.js'
+import { resolveIcdForCondition } from '../lib/align-condition-icd.js'
 
 /**
  * Write endpoints backing the interactive UI. Everything is scoped to the
@@ -199,6 +203,90 @@ export async function manageRoutes(app: FastifyInstance): Promise<void> {
       .delete(schema.conditions)
       .where(and(eq(schema.conditions.userId, userId), eq(schema.conditions.key, key)))
     return reply.send({ ok: true })
+  })
+
+  app.patch('/conditions/:key', async (request, reply) => {
+    const parsed = conditionRenameSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Invalid condition', issues: parsed.error.issues })
+    }
+
+    const userId = request.session.userId!
+    const { key } = request.params as { key: string }
+    const [existing] = await db
+      .select()
+      .from(schema.conditions)
+      .where(and(eq(schema.conditions.userId, userId), eq(schema.conditions.key, key)))
+      .limit(1)
+    if (!existing) return reply.code(404).send({ error: 'Condition not found' })
+
+    const resolved = resolveConditionCreate({
+      name: parsed.data.name,
+      moduleKey: parsed.data.moduleKey,
+      icdCode: parsed.data.icdCode,
+      status: 'active',
+      diagnosedAt: null,
+      managingProviderId: null,
+      notes: null,
+    })
+    let nextKey = resolved.key
+    let displayName = resolved.displayName
+    let icdCode = resolved.icdCode
+
+    if (!icdCode) {
+      const aligned = await resolveIcdForCondition({
+        key: nextKey,
+        displayName,
+        icdCode: null,
+      })
+      if (aligned) {
+        icdCode = aligned.icdCode
+        displayName = aligned.displayName
+        const moduleKey = inferModuleKey({
+          name: displayName,
+          displayName,
+          icdCode,
+        })
+        nextKey = buildConditionKey({ name: displayName, moduleKey, icdCode })
+      }
+    }
+
+    if (nextKey !== key) {
+      const [clash] = await db
+        .select({ id: schema.conditions.id })
+        .from(schema.conditions)
+        .where(and(eq(schema.conditions.userId, userId), eq(schema.conditions.key, nextKey)))
+        .limit(1)
+      if (clash) {
+        return reply.code(409).send({
+          error: 'That diagnosis is already on your profile.',
+        })
+      }
+    }
+
+    const oldModule = inferModuleKey({
+      key: existing.key,
+      displayName: existing.displayName,
+      icdCode: existing.icdCode,
+    })
+    const newModule = inferModuleKey({
+      key: nextKey,
+      displayName,
+      icdCode,
+    })
+    const set: Record<string, unknown> = {
+      key: nextKey,
+      displayName,
+      icdCode,
+    }
+    if (oldModule !== newModule) set.moduleConfig = null
+
+    await db
+      .update(schema.conditions)
+      .set(set)
+      .where(and(eq(schema.conditions.userId, userId), eq(schema.conditions.key, key)))
+
+    return reply.send({ ok: true, key: nextKey, displayName, icdCode })
   })
 
   const moduleActionSchema = z.discriminatedUnion('action', [
